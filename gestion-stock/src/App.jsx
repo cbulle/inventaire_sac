@@ -54,12 +54,12 @@ function App() {
   return (
     <div style={{ padding: '20px', maxWidth: '1100px', margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
-        <h1 style={{margin: 0}}>📦 Stock Secours</h1>
+        <h1 style={{margin: 0}}>Stock Secours</h1>
         <button 
           onClick={() => generatePDF(allProduits)} 
           style={{ background: '#059669', color: 'white', border: 'none', padding: '10px 15px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
         >
-          📥 PDF ({allProduits.length})
+          📥 PDF
         </button>
       </header>
       

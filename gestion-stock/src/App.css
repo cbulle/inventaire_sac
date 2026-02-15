@@ -1,4 +1,4 @@
-/* Design Système */
+
 :root {
   --primary: #2563eb;
   --bg: #f3f4f6;
@@ -16,12 +16,11 @@ body {
 }
 
 .app-container {
-  max-width: 600px; /* Taille idéale pour mobile/tablette */
+  max-width: 600px; 
   margin: 0 auto;
   padding: 15px;
 }
 
-/* Bouton Exporter flottant sur mobile */
 .export-btn {
   background: var(--success);
   color: white;
@@ -35,7 +34,6 @@ body {
   margin-bottom: 20px;
 }
 
-/* Grille de cartes pour le stock */
 .stock-grid {
   display: flex;
   flex-direction: column;
@@ -85,7 +83,6 @@ body {
   gap: 5px;
 }
 
-/* Filtres horizontaux qui défilent */
 .filter-bar {
   display: flex;
   overflow-x: auto;

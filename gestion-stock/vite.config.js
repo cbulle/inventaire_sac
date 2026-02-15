@@ -9,7 +9,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'Stock Secours',
+        name: 'Stock Sac SSSM',
         short_name: 'Secours',
         description: 'Gestion du stock sac de secours',
         theme_color: '#ffffff',
