@@ -4,6 +4,8 @@ import { initializeApp } from "firebase/app";
 // https://firebase.google.com/docs/web/setup#available-libraries
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+
+
 // Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyBene0gWYJ1_q9aFtzPFrAlSLLSUN_W9eU",
@@ -16,7 +18,9 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-export const auth = getAuth(app); // <--- AJOUT IMPORTANT
+export const auth = getAuth(app);
 export const db = getFirestore(app);
 
 export const CATEGORIES = ["Pochette Haute ext", "Pochette Basse ext","Poche divers", "Poches latérales int", "Pochette bleue (O2)", "Pochette verte (reserve solutés)", "Pochette jaune (ampouliers)", "Pochette rouge (reserve)", "Pochette vvp"];
+
+export const SACS = ["Sac 1", "Sac 2", "Sac 3"];

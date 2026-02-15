@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { db, CATEGORIES } from '../firebase';
+import { db, CATEGORIES, SACS } from '../firebase';
 import { collection, addDoc } from "firebase/firestore";
 
-export default function ProductForm() {
+export default function ProductForm({caserne}) {
   const [item, setItem] = useState({ 
     nom: '', 
     categorie: CATEGORIES[0], 
+    sac: SACS[0],
     quantite: 1, 
     quantiteDemandee: 1, // <--- NOUVEAU CHAMP
     datePeremption: '', 
@@ -49,6 +50,10 @@ export default function ProductForm() {
         <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '15px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}>
           <h3 style={{ marginTop: 0, color: '#1e293b' }}>Nouveau produit</h3>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+            <select value={item.sac} onChange={e => setItem({...item, sac: e.target.value})} style={{...inputStyle, background:'#dbeafe', borderColor:'#2563eb', color:'#1e40af', fontWeight:'bold'}}>
+              {SACS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
             
             <input placeholder="Nom de l'objet" value={item.nom} onChange={e => setItem({...item, nom: e.target.value})} style={inputStyle} required />
             
