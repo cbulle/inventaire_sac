@@ -140,7 +140,7 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
         <SearchBar 
           onSearch={setSearchTerm} 
           isDarkMode={isDarkMode}
-          placeholder="🔍 Rechercher un produit..."
+          placeholder="Rechercher un produit..."
         />
       </div>
 
@@ -179,7 +179,7 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
               }
             }}
           >
-            🎒 {sac}
+            {sac}
           </button>
         ))}
       </div>
@@ -288,27 +288,9 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
               }}
               title="Trier par péremption"
             >
-              📅
+              <i class="material-icons">date_range</i>
             </button>
-            <button 
-              onClick={() => handleSort('modif')} 
-              style={{
-                border: 'none',
-                background: sortBy === 'modif' ? colors.bg.primary : 'transparent',
-                color: sortBy === 'modif' ? colors.brand.primary : colors.text.secondary,
-                padding: '6px 10px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: sortBy === 'modif' ? 'bold' : 'normal',
-                fontSize: '12px',
-                '@media (max-width: 768px)': {
-                  padding: '5px 8px'
-                }
-              }}
-              title="Trier par modification"
-            >
-              🕐
-            </button>
+            
           </div>
 
           <button 
@@ -581,7 +563,7 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
                         }}
                         title="Supprimer"
                       >
-                        🗑️
+                        <i class="material-icons">delete</i>
                       </button>
                     </td>
                   </tr>

@@ -3,396 +3,137 @@ import { db } from '../firebase';
 import { collection, addDoc, doc, getDoc } from "firebase/firestore";
 import { getTheme } from '../theme';
 
-export default function ProductForm({ caserne, onProductAdded, isDarkMode = false }) {
+export default function ProductForm({ caserne, isDarkMode }) {
+  const [isOpen, setIsOpen] = useState(false);
   const [categories, setCategories] = useState([]);
   const [sacs, setSacs] = useState([]);
-  const [item, setItem] = useState({ 
-    nom: '', 
-    categorie: '', 
-    sac: '',
-    quantite: 1, 
-    quantiteDemandee: 1,
-    datePeremption: '', 
-    datederniereCommande: '', 
-    Remarques: '',
-    commandeStatus: 'non-commande'
-  });
-  const [isOpen, setIsOpen] = useState(false);
   const colors = getTheme(isDarkMode);
+  
+  const [item, setItem] = useState({ 
+    nom: '', categorie: '', sac: '',
+    quantite: 1, quantiteDemandee: 1,
+    datePeremption: '', commandeStatus: 'non-commande', Remarques: ''
+  });
 
-  // Charger les sacs et catégories
   useEffect(() => {
     if (!caserne) return;
-
-    const loadConfig = async () => {
-      try {
-        const configRef = doc(db, "config", caserne);
-        const configDoc = await getDoc(configRef);
-
-        if (configDoc.exists()) {
-          const data = configDoc.data();
-          setCategories(data.categories || []);
-          setSacs(data.sacs || []);
-          
-          if (data.sacs.length > 0) {
-            setItem(prev => ({ ...prev, sac: data.sacs[0] }));
-          }
-          if (data.categories.length > 0) {
-            setItem(prev => ({ ...prev, categorie: data.categories[0] }));
-          }
-        }
-      } catch (error) {
-        console.error("Erreur chargement config:", error);
+    getDoc(doc(db, "config", caserne)).then(snap => {
+      if(snap.exists()) {
+        const d = snap.data();
+        setCategories(d.categories || []);
+        setSacs(d.sacs || []);
+        // Pré-remplir avec les premières valeurs pour éviter les champs vides
+        if(d.sacs?.length) setItem(i => ({...i, sac: d.sacs[0]}));
+        if(d.categories?.length) setItem(i => ({...i, categorie: d.categories[0]}));
       }
-    };
-
-    loadConfig();
+    });
   }, [caserne]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!item.nom) {
-      alert("Veuillez entrer un nom de produit");
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, "produits"), {
-        ...item,
-        caserne,
-        dateModification: new Date().toISOString(),
-        dateCreation: new Date().toISOString()
-      });
-
-      setItem({ 
-        nom: '', 
-        categorie: categories[0] || '', 
-        sac: sacs[0] || '',
-        quantite: 1, 
-        quantiteDemandee: 1, 
-        datePeremption: '', 
-        datederniereCommande: '', 
-        Remarques: '',
-        commandeStatus: 'non-commande'
-      });
-      setIsOpen(false);
-      alert("Produit ajouté !");
-      
-      if (onProductAdded) onProductAdded();
-    } catch (error) {
-      console.error("Erreur Firebase :", error);
-      alert("Erreur lors de l'ajout du produit");
-    }
+    await addDoc(collection(db, "produits"), { ...item, caserne, dateModification: new Date().toISOString() });
+    setIsOpen(false);
+    setItem(prev => ({...prev, nom: '', quantite: 1, Remarques: ''})); 
   };
 
-  const inputStyle = { 
-    padding: '12px', 
-    borderRadius: '8px', 
-    border: `1px solid ${colors.border}`, 
-    fontSize: '14px', 
-    width: '100%', 
-    boxSizing: 'border-box',
-    backgroundColor: colors.bg.secondary,
-    color: colors.text.primary,
-    transition: 'all 0.2s ease'
+  // Styles communs pour les inputs
+  const inputStyle = {
+    width: '100%', padding: '12px', borderRadius: '10px',
+    border: `1px solid ${colors.border}`, background: colors.bg.secondary,
+    color: colors.text.primary, boxSizing: 'border-box', fontSize: '14px', marginBottom: 15
+  };
+
+  const labelStyle = {
+    display:'block', marginBottom: 5, fontSize: 12, fontWeight: 600, color: colors.text.secondary, textTransform:'uppercase'
   };
 
   return (
-    <div style={{
-      marginBottom: '20px',
-      '@media (max-width: 768px)': {
-        marginBottom: '15px'
-      }
-    }}>
+    <>
+      {/* BOUTON FLOTTANT (FAB) */}
       <button 
-        onClick={() => setIsOpen(!isOpen)}
+        className="fab-btn"
+        onClick={() => setIsOpen(true)}
         style={{
-          width: '100%',
-          padding: '14px',
-          borderRadius: '10px',
-          border: 'none',
-          background: isOpen ? colors.text.secondary : colors.brand.primary,
-          color: 'white',
-          fontWeight: 'bold',
-          marginBottom: isOpen ? '15px' : '0',
-          cursor: 'pointer',
-          fontSize: '16px',
-          transition: 'all 0.2s ease',
-          minHeight: '48px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          '@media (max-width: 768px)': {
-            padding: '12px',
-            fontSize: '14px',
-            minHeight: '44px'
-          }
+          position: 'fixed', bottom: 30, right: 30,
+          width: 60, height: 60, borderRadius: 30,
+          background: colors.brand.primary, color: 'white',
+          border: 'none', boxShadow: colors.shadow,
+          fontSize: 30, cursor: 'pointer', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
         }}
       >
-        {isOpen ? "✖ Annuler" : "➕ Ajouter un article"}
+        +
       </button>
 
+      {/* MODALE */}
       {isOpen && (
-        <div style={{
-          background: colors.bg.primary,
-          padding: '20px',
-          borderRadius: '15px',
-          boxShadow: `0 4px 12px ${colors.shadow}`,
-          border: `1px solid ${colors.border}`,
-          '@media (max-width: 768px)': {
-            padding: '15px',
-            borderRadius: '12px'
-          }
-        }}>
-          <h3 style={{
-            marginTop: 0,
-            color: colors.text.primary,
-            fontSize: '18px',
-            '@media (max-width: 768px)': {
-              fontSize: '16px'
-            }
-          }}>
-            Nouveau produit
-          </h3>
-          <form onSubmit={handleSubmit} style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px'
-          }}>
-
-            <div>
-              <label style={{
-                fontSize: '12px',
-                color: colors.text.secondary,
-                fontWeight: 'bold',
-                marginBottom: '4px',
-                display: 'block'
-              }}>
-                Sac
-              </label>
-              <select 
-                value={item.sac} 
-                onChange={e => setItem({...item, sac: e.target.value})} 
-                style={{
-                  ...inputStyle,
-                  background: colors.brand.light,
-                  color: colors.brand.dark,
-                  fontWeight: 'bold'
-                }}
-                required
-              >
-                <option value="">-- Sélectionnez un sac --</option>
-                {sacs.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
+        <div className="modal-overlay" 
+             onClick={() => setIsOpen(false)}
+             style={{
+               position:'fixed', top:0, left:0, right:0, bottom:0,
+               background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)',
+               zIndex: 1100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center'
+             }}>
+             
+          {/* Contenu de la modale (Style 'Sheet' sur mobile, centré sur desktop) */}
+          <div className="modal-content"
+               onClick={e => e.stopPropagation()}
+               style={{
+                 background: colors.bg.primary, width: '100%', maxWidth: 500,
+                 borderRadius: '20px 20px 0 0', padding: 25,
+                 maxHeight: '90vh', overflowY: 'auto',
+                 '@media (min-width: 768px)': { borderRadius: 20, marginBottom: 20 }
+               }}>
             
-            <div>
-              <label style={{
-                fontSize: '12px',
-                color: colors.text.secondary,
-                fontWeight: 'bold',
-                marginBottom: '4px',
-                display: 'block'
-              }}>
-                Nom du produit
-              </label>
-              <input 
-                placeholder="Ex: Bandage stérile" 
-                value={item.nom} 
-                onChange={e => setItem({...item, nom: e.target.value})} 
-                style={inputStyle}
-                required 
-              />
-            </div>
-            
-            <div>
-              <label style={{
-                fontSize: '12px',
-                color: colors.text.secondary,
-                fontWeight: 'bold',
-                marginBottom: '4px',
-                display: 'block'
-              }}>
-                Catégorie
-              </label>
-              <select 
-                value={item.categorie} 
-                onChange={e => setItem({...item, categorie: e.target.value})} 
-                style={inputStyle}
-                required
-              >
-                <option value="">-- Sélectionnez une catégorie --</option>
-                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-              </select>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
+              <h2 style={{margin:0, color: colors.text.primary}}> Nouveau Produit</h2>
+              <button onClick={() => setIsOpen(false)} style={{background:'none', border:'none', fontSize: 24, cursor:'pointer', color: colors.text.secondary}}>✕</button>
             </div>
 
-            {/* Ligne des quantités */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '12px',
-              '@media (max-width: 768px)': {
-                gridTemplateColumns: '1fr 1fr',
-                gap: '10px'
-              }
-            }}>
-              <div>
-                <label style={{
-                  fontSize: '11px',
-                  color: colors.text.secondary,
-                  fontWeight: 'bold',
-                  display: 'block',
-                  marginBottom: '4px'
-                }}>
-                  Qty Réelle
-                </label>
-                <input 
-                  type="number" 
-                  value={item.quantite} 
-                  onChange={e => setItem({...item, quantite: Number(e.target.value)})} 
-                  style={inputStyle}
-                  min="0"
-                />
+            <form onSubmit={handleSubmit}>
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap: 15}}>
+                <div>
+                  <label style={labelStyle}>Sac / Emplacement</label>
+                  <select style={inputStyle} value={item.sac} onChange={e => setItem({...item, sac: e.target.value})}>
+                    {sacs.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                   <label style={labelStyle}>Emplacement</label>
+                   <select style={inputStyle} value={item.categorie} onChange={e => setItem({...item, categorie: e.target.value})}>
+                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label style={{
-                  fontSize: '11px',
-                  color: colors.text.secondary,
-                  fontWeight: 'bold',
-                  display: 'block',
-                  marginBottom: '4px'
-                }}>
-                  Qty Attendue
-                </label>
-                <input 
-                  type="number" 
-                  value={item.quantiteDemandee} 
-                  onChange={e => setItem({...item, quantiteDemandee: Number(e.target.value)})} 
-                  style={inputStyle}
-                  min="1"
-                />
-              </div>
-            </div>
 
-            {/* Dates */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '12px',
-              '@media (max-width: 768px)': {
-                gridTemplateColumns: '1fr 1fr',
-                gap: '10px'
-              }
-            }}>
-              <div>
-                <label style={{
-                  fontSize: '11px',
-                  color: colors.text.secondary,
-                  fontWeight: 'bold',
-                  display: 'block',
-                  marginBottom: '4px'
-                }}>
-                  Péremption
-                </label>
-                <input 
-                  type="month" 
-                  value={item.datePeremption} 
-                  onChange={e => setItem({...item, datePeremption: e.target.value})} 
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{
-                  fontSize: '11px',
-                  color: colors.text.secondary,
-                  fontWeight: 'bold',
-                  display: 'block',
-                  marginBottom: '4px'
-                }}>
-                  Dernière commande
-                </label>
-                <input 
-                  type="date" 
-                  value={item.datederniereCommande} 
-                  onChange={e => setItem({...item, datederniereCommande: e.target.value})} 
-                  style={inputStyle}
-                />
-              </div>
-            </div>
+              <label style={labelStyle}>Nom du produit</label>
+              <input style={inputStyle} placeholder="Ex: Pansements compressifs" value={item.nom} onChange={e => setItem({...item, nom: e.target.value})} required />
 
-            {/* Status de commande */}
-            <div>
-              <label style={{
-                fontSize: '12px',
-                color: colors.text.secondary,
-                fontWeight: 'bold',
-                marginBottom: '4px',
-                display: 'block'
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap: 15}}>
+                <div>
+                  <label style={labelStyle}>Quantité Actuelle</label>
+                  <input type="number" style={inputStyle} value={item.quantite} onChange={e => setItem({...item, quantite: Number(e.target.value)})} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Quantité Requise</label>
+                  <input type="number" style={inputStyle} value={item.quantiteDemandee} onChange={e => setItem({...item, quantiteDemandee: Number(e.target.value)})} />
+                </div>
+              </div>
+
+              <label style={labelStyle}>Date de Péremption (Optionnel)</label>
+              <input type="month" style={inputStyle} value={item.datePeremption} onChange={e => setItem({...item, datePeremption: e.target.value})} />
+
+              <button type="submit" style={{
+                width: '100%', padding: 15, borderRadius: 12,
+                background: colors.brand.primary, color: 'white',
+                border: 'none', fontWeight: 'bold', fontSize: 16, cursor: 'pointer', marginTop: 10
               }}>
-                Status de commande
-              </label>
-              <select 
-                value={item.commandeStatus} 
-                onChange={e => setItem({...item, commandeStatus: e.target.value})} 
-                style={{
-                  ...inputStyle,
-                  color: colors.brand.primary,
-                  fontWeight: 'bold'
-                }}
-              >
-                <option value="non-commande">❌ Non commandé</option>
-                <option value="commande">📦 En commande</option>
-                <option value="recu">✅ Reçu</option>
-              </select>
-            </div>
-
-            {/* Remarques */}
-            <div>
-              <label style={{
-                fontSize: '12px',
-                color: colors.text.secondary,
-                fontWeight: 'bold',
-                marginBottom: '4px',
-                display: 'block'
-              }}>
-                Remarques
-              </label>
-              <input 
-                placeholder="Notes supplémentaires..." 
-                value={item.Remarques} 
-                onChange={e => setItem({...item, Remarques: e.target.value})} 
-                style={inputStyle}
-              />
-            </div>
-            
-            <button 
-              type="submit" 
-              style={{
-                background: colors.success,
-                color: 'white',
-                border: 'none',
-                padding: '14px',
-                borderRadius: '10px',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                fontSize: '16px',
-                transition: 'all 0.2s ease',
-                minHeight: '48px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                '@media (max-width: 768px)': {
-                  padding: '12px',
-                  fontSize: '14px',
-                  minHeight: '44px'
-                }
-              }}
-            >
-              ✓ Enregistrer
-            </button>
-          </form>
+                Ajouter au stock
+              </button>
+            </form>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
