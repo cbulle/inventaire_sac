@@ -1,22 +1,50 @@
 import React, { useState, useEffect } from 'react';
-import { db, CATEGORIES, SACS } from '../firebase';
+import { db } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, where } from "firebase/firestore";
+import SearchBar from './SearchBar';
+import { getTheme } from '../theme';
 
-export default function StockTable({ caserne }) {
-  const [produits, setProduits] = useState([]);
+export default function StockTable({ caserne, isDarkMode, produits: initialProduits = [] }) {
+  const [produits, setProduits] = useState(initialProduits);
+  const [categories, setCategories] = useState([]);
+  const [sacs, setSacs] = useState([]);
+  const [currentSac, setCurrentSac] = useState('');
+  const [filter, setFilter] = useState('Toutes');
+  const [sortBy, setSortBy] = useState('nom');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [showCommandePanel, setShowCommandePanel] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   
-  // --- ÉTATS DE FILTRES ---
-  const [currentSac, setCurrentSac] = useState(SACS[0]); // Le sac sélectionné
-  const [filter, setFilter] = useState('Toutes'); // La catégorie sélectionnée
-  
-  // --- ÉTATS DE TRI ET D'INTERFACE (Ceux qui manquaient !) ---
-  const [sortBy, setSortBy] = useState('nom'); // 'nom', 'peremption', 'modif'
-  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' ou 'desc'
-  const [showSidebar, setShowSidebar] = useState(false); // Sidebar contrôle
+  const colors = getTheme(isDarkMode);
 
-  // 1. CHARGEMENT DES DONNÉES (Filtré par Caserne ET par Sac)
+  // Charger la configuration
   useEffect(() => {
     if (!caserne) return;
+
+    const configRef = doc(db, "config", caserne);
+    const unsubscribe = onSnapshot(configRef, (configDoc) => {
+      if (configDoc.exists()) {
+        const data = configDoc.data();
+        setCategories(data.categories || []);
+        setSacs(data.sacs || []);
+        if (data.sacs && data.sacs.length > 0 && !currentSac) {
+          setCurrentSac(data.sacs[0]);
+        }
+      }
+    }, error => console.error("Erreur snapshot config:", error));
+
+    return () => unsubscribe();
+  }, [caserne]);
+
+  // Charger les produits si pas fournis
+  useEffect(() => {
+    if (initialProduits.length > 0) {
+      setProduits(initialProduits);
+      return;
+    }
+
+    if (!caserne || !currentSac) return;
 
     const q = query(
       collection(db, "produits"),
@@ -30,15 +58,15 @@ export default function StockTable({ caserne }) {
     });
 
     return () => unsubscribe();
-  }, [caserne, currentSac]); // On recharge si la caserne ou le sac change
+  }, [caserne, currentSac, initialProduits]);
 
-  // 2. MISE À JOUR FIRESTORE
+  // Mise à jour Firestore
   const handleUpdate = async (id, field, value) => {
     const docRef = doc(db, "produits", id);
     await updateDoc(docRef, { [field]: value, dateModification: new Date().toISOString() });
   };
 
-  // 3. LOGIQUE DE TRI
+  // Logique de tri
   const handleSort = (criteria) => {
     if (sortBy === criteria) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -48,11 +76,19 @@ export default function StockTable({ caserne }) {
     }
   };
 
-  const getSortedProduits = () => {
-    // D'abord on filtre par catégorie (Pochette, etc.)
-    const filtered = productosByCategory();
+  // Filtrer par catégorie et recherche
+  const productsByCategory = () => {
+    return produits.filter(p => 
+      (filter === 'Toutes' || p.categorie === filter) &&
+      (p.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+       p.Remarques?.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  };
 
-    // Ensuite on trie
+  // Trier les produits
+  const getSortedProduits = () => {
+    const filtered = productsByCategory();
+
     return [...filtered].sort((a, b) => {
       let valA = a[sortBy === 'peremption' ? 'datePeremption' : sortBy === 'modif' ? 'dateModification' : 'nom'];
       let valB = b[sortBy === 'peremption' ? 'datePeremption' : sortBy === 'modif' ? 'dateModification' : 'nom'];
@@ -68,27 +104,25 @@ export default function StockTable({ caserne }) {
     });
   };
 
-  const productosByCategory = () => {
-    return produits.filter(p => filter === 'Toutes' || p.categorie === filter);
+  // Produits à commander
+  const getProductsToOrder = () => {
+    const grouped = {};
+    const productsNeedingOrder = produits.filter(p => {
+      const isLowStock = (p.quantite || 0) < (p.quantiteDemandee || 1);
+      return isLowStock && p.commandeStatus !== 'recu';
+    });
+
+    productsNeedingOrder.forEach(p => {
+      const status = p.commandeStatus || 'non-commande';
+      if (!grouped[status]) grouped[status] = [];
+      grouped[status].push(p);
+    });
+
+    return grouped;
   };
 
-  // 4. LOGIQUE SIDEBAR (Péremptions)
-  const getExpiringProducts = () => {
-    const grouped = {};
-    produits.forEach(p => {
-      if (p.datePeremption) {
-        const key = p.datePeremption; 
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key].push(p);
-      }
-    });
-    return Object.keys(grouped).sort().map(date => ({
-      date,
-      products: grouped[date]
-    }));
-  };
-  
   const formatMonthYear = (dateStr) => {
+    if (!dateStr) return 'N/A';
     const [year, month] = dateStr.split('-');
     const date = new Date(year, month - 1);
     return date.toLocaleString('fr-FR', { month: 'long', year: 'numeric' }).toUpperCase();
@@ -96,165 +130,673 @@ export default function StockTable({ caserne }) {
 
   return (
     <div>
-      {/* --- ONGLET SACS --- */}
-      <div style={{display:'flex', gap:'10px', marginBottom:'20px', borderBottom:'2px solid #e2e8f0', paddingBottom:'10px', overflowX:'auto'}}>
-        {SACS.map(sac => (
-            <button 
-                key={sac} 
-                onClick={() => setCurrentSac(sac)}
-                style={{
-                    padding:'10px 20px', 
-                    border:'none', 
-                    background: currentSac === sac ? '#1e40af' : 'transparent',
-                    color: currentSac === sac ? 'white' : '#64748b',
-                    borderRadius:'8px',
-                    fontWeight:'bold',
-                    cursor:'pointer',
-                    whiteSpace: 'nowrap'
-                }}
-            >
-                🎒 {sac}
-            </button>
+      {/* BARRE DE RECHERCHE */}
+      <div style={{
+        marginBottom: '20px',
+        '@media (max-width: 768px)': {
+          marginBottom: '15px'
+        }
+      }}>
+        <SearchBar 
+          onSearch={setSearchTerm} 
+          isDarkMode={isDarkMode}
+          placeholder="🔍 Rechercher un produit..."
+        />
+      </div>
+
+      {/* ONGLET SACS */}
+      <div style={{
+        display: 'flex',
+        gap: '10px',
+        marginBottom: '20px',
+        borderBottom: `2px solid ${colors.border}`,
+        paddingBottom: '10px',
+        overflowX: 'auto',
+        scrollbarWidth: 'none',
+        '@media (max-width: 768px)': {
+          marginBottom: '15px',
+          gap: '8px'
+        }
+      }}>
+        {sacs.map(sac => (
+          <button 
+            key={sac} 
+            onClick={() => setCurrentSac(sac)}
+            style={{
+              padding: '10px 16px',
+              border: 'none',
+              background: currentSac === sac ? colors.brand.primary : 'transparent',
+              color: currentSac === sac ? 'white' : colors.text.secondary,
+              borderRadius: '8px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              fontSize: '14px',
+              transition: 'all 0.2s ease',
+              '@media (max-width: 768px)': {
+                padding: '8px 12px',
+                fontSize: '12px'
+              }
+            }}
+          >
+            🎒 {sac}
+          </button>
         ))}
       </div>
 
-      {/* --- BARRE D'OUTILS (Catégories + Tris + Sidebar) --- */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
-        
+      {/* BARRE D'OUTILS */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '10px',
+        marginBottom: '15px',
+        '@media (max-width: 768px)': {
+          gap: '8px'
+        }
+      }}>
         {/* Filtres Catégories */}
-        <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '5px', scrollbarWidth: 'none', maxWidth: '100%' }}>
-          {['Toutes', ...CATEGORIES].map(cat => (
-            <button key={cat} onClick={() => setFilter(cat)} style={{ 
-              padding: '6px 12px', borderRadius: '15px', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-              background: filter === cat ? '#2563eb' : '#e2e8f0', color: filter === cat ? 'white' : '#475569', fontSize: '12px'
-            }}>
+        <div style={{
+          display: 'flex',
+          gap: '5px',
+          overflowX: 'auto',
+          paddingBottom: '5px',
+          scrollbarWidth: 'none',
+          flex: '1 1 auto',
+          minWidth: '0',
+          '@media (max-width: 768px)': {
+            gap: '4px',
+            width: '100%'
+          }
+        }}>
+          {['Toutes', ...categories].map(cat => (
+            <button 
+              key={cat} 
+              onClick={() => setFilter(cat)} 
+              style={{
+                padding: '6px 12px',
+                borderRadius: '15px',
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                background: filter === cat ? colors.brand.primary : colors.bg.tertiary,
+                color: filter === cat ? 'white' : colors.text.secondary,
+                fontSize: '12px',
+                fontWeight: filter === cat ? 'bold' : 'normal',
+                transition: 'all 0.2s ease',
+                '@media (max-width: 768px)': {
+                  padding: '5px 10px',
+                  fontSize: '11px'
+                }
+              }}
+            >
               {cat}
             </button>
           ))}
         </div>
 
         {/* Boutons d'actions */}
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '2px' }}>
-            <button onClick={() => handleSort('nom')} style={sortBtnStyle(sortBy === 'nom')}>Abc</button>
-            <button onClick={() => handleSort('peremption')} style={sortBtnStyle(sortBy === 'peremption')}>📅</button>
-            <button onClick={() => handleSort('modif')} style={sortBtnStyle(sortBy === 'modif')}>🕒</button>
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          '@media (max-width: 768px)': {
+            gap: '6px',
+            width: '100%'
+          }
+        }}>
+          <div style={{
+            display: 'flex',
+            background: colors.bg.tertiary,
+            borderRadius: '8px',
+            padding: '2px',
+            gap: '2px'
+          }}>
+            <button 
+              onClick={() => handleSort('nom')} 
+              style={{
+                border: 'none',
+                background: sortBy === 'nom' ? colors.bg.primary : 'transparent',
+                color: sortBy === 'nom' ? colors.brand.primary : colors.text.secondary,
+                padding: '6px 10px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: sortBy === 'nom' ? 'bold' : 'normal',
+                fontSize: '12px',
+                '@media (max-width: 768px)': {
+                  padding: '5px 8px'
+                }
+              }}
+              title="Trier par nom"
+            >
+              Abc
+            </button>
+            <button 
+              onClick={() => handleSort('peremption')} 
+              style={{
+                border: 'none',
+                background: sortBy === 'peremption' ? colors.bg.primary : 'transparent',
+                color: sortBy === 'peremption' ? colors.brand.primary : colors.text.secondary,
+                padding: '6px 10px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: sortBy === 'peremption' ? 'bold' : 'normal',
+                fontSize: '12px',
+                '@media (max-width: 768px)': {
+                  padding: '5px 8px'
+                }
+              }}
+              title="Trier par péremption"
+            >
+              📅
+            </button>
+            <button 
+              onClick={() => handleSort('modif')} 
+              style={{
+                border: 'none',
+                background: sortBy === 'modif' ? colors.bg.primary : 'transparent',
+                color: sortBy === 'modif' ? colors.brand.primary : colors.text.secondary,
+                padding: '6px 10px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: sortBy === 'modif' ? 'bold' : 'normal',
+                fontSize: '12px',
+                '@media (max-width: 768px)': {
+                  padding: '5px 8px'
+                }
+              }}
+              title="Trier par modification"
+            >
+              🕐
+            </button>
           </div>
 
           <button 
             onClick={() => setShowSidebar(!showSidebar)}
-            style={{ 
-              background: showSidebar ? '#ef4444' : '#fff', border: '1px solid #ef4444', color: showSidebar ? 'white' : '#ef4444',
-              padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold'
+            style={{
+              background: showSidebar ? colors.danger : colors.bg.primary,
+              border: `1px solid ${colors.danger}`,
+              color: showSidebar ? 'white' : colors.danger,
+              padding: '6px 12px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              whiteSpace: 'nowrap',
+              minHeight: '48px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              '@media (max-width: 768px)': {
+                padding: '8px 10px',
+                minHeight: '48px'
+              }
             }}
+            title="Afficher/masquer les péremptions"
           >
             {showSidebar ? 'Fermer' : '⚠️'}
+          </button>
+
+          <button 
+            onClick={() => setShowCommandePanel(!showCommandePanel)}
+            style={{
+              background: showCommandePanel ? colors.warning : colors.bg.primary,
+              border: `1px solid ${colors.warning}`,
+              color: showCommandePanel ? 'white' : colors.warning,
+              padding: '6px 12px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              whiteSpace: 'nowrap',
+              minHeight: '48px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              '@media (max-width: 768px)': {
+                padding: '8px 10px',
+                minHeight: '48px'
+              }
+            }}
+            title="Afficher/masquer les commandes"
+          >
+            {showCommandePanel ? 'Fermer' : '📦'}
           </button>
         </div>
       </div>
 
-      {/* --- CONTENU PRINCIPAL --- */}
-      <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+      {/* CONTENU PRINCIPAL */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr',
+        gap: '20px',
+        '@media (min-width: 1200px)': {
+          gridTemplateColumns: showSidebar || showCommandePanel ? '1fr 300px' : '1fr'
+        },
+        '@media (max-width: 768px)': {
+          gap: '15px'
+        }
+      }}>
         
         {/* TABLEAU */}
-        <div style={{ flex: 1, overflowX: 'auto', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', background: 'white' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+        <div style={{
+          overflowX: 'auto',
+          borderRadius: '10px',
+          boxShadow: `0 2px 8px ${colors.shadow}`,
+          backgroundColor: colors.bg.primary,
+          '@media (max-width: 768px)': {
+            borderRadius: '8px'
+          }
+        }}>
+          <table style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            minWidth: '700px'
+          }}>
             <thead>
-              <tr style={{ background: '#f8fafc', color: '#64748b', fontSize: '11px', textAlign: 'left', textTransform: 'uppercase' }}>
-                <th style={{ padding: '10px' }}>Nom {sortBy === 'nom' && (sortOrder === 'asc' ? '↓' : '↑')}</th>
-                <th style={{ padding: '10px' }}>Catégorie</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>Qté (R/A)</th>
-                <th style={{ padding: '10px' }}>Péremption {sortBy === 'peremption' && (sortOrder === 'asc' ? '↓' : '↑')}</th>
-                <th style={{ padding: '10px' }}>Remarques</th>
-                <th style={{ padding: '10px' }}>Action</th>
+              <tr style={{
+                background: colors.bg.tertiary,
+                color: colors.text.secondary,
+                fontSize: '11px',
+                textAlign: 'left',
+                textTransform: 'uppercase'
+              }}>
+                <th style={{ padding: '12px', '@media (max-width: 768px)': { padding: '10px' } }}>
+                  Nom {sortBy === 'nom' && (sortOrder === 'asc' ? '↓' : '↑')}
+                </th>
+                <th style={{ padding: '12px' }}>Catégorie</th>
+                <th style={{ padding: '12px', textAlign: 'center' }}>Qty (R/A)</th>
+                <th style={{ padding: '12px' }}>Péremption {sortBy === 'peremption' && (sortOrder === 'asc' ? '↓' : '↑')}</th>
+                <th style={{ padding: '12px' }}>Commande</th>
+                <th style={{ padding: '12px' }}>Remarques</th>
+                <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {getSortedProduits().map(p => {
                 const isLowStock = (p.quantite || 0) < (p.quantiteDemandee || 1);
+                const commandeStatusColor = {
+                  'recu': isDarkMode ? 'rgba(52, 211, 153, 0.15)' : 'rgba(16, 185, 129, 0.1)',
+                  'commande': isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(245, 158, 11, 0.1)',
+                  'non-commande': isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)'
+                };
+                
                 return (
-                  <tr key={p.id} style={{ borderTop: '1px solid #f1f5f9', background: isLowStock ? '#fff1f2' : 'white' }}>
-                    <td style={{ padding: '8px' }}>
-                      <input type="text" value={p.nom} onChange={e => handleUpdate(p.id, 'nom', e.target.value)} style={inputTransparent} />
+                  <tr 
+                    key={p.id} 
+                    style={{
+                      borderTop: `1px solid ${colors.border}`,
+                      background: isLowStock ? commandeStatusColor[p.commandeStatus] || commandeStatusColor['non-commande'] : colors.bg.primary,
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <td style={{ padding: '10px' }}>
+                      <input 
+                        type="text" 
+                        value={p.nom} 
+                        onChange={e => handleUpdate(p.id, 'nom', e.target.value)} 
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          width: '100%',
+                          fontSize: '13px',
+                          padding: '4px',
+                          outline: 'none',
+                          color: colors.text.primary,
+                          '@media (max-width: 768px)': {
+                            fontSize: '12px'
+                          }
+                        }}
+                      />
                     </td>
-                    <td style={{ padding: '8px' }}>
-                      <select value={p.categorie} onChange={e => handleUpdate(p.id, 'categorie', e.target.value)} style={{ ...inputTransparent, color: '#2563eb', fontWeight: 'bold', fontSize: '12px' }}>
-                        {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    <td style={{ padding: '10px' }}>
+                      <select 
+                        value={p.categorie} 
+                        onChange={e => handleUpdate(p.id, 'categorie', e.target.value)} 
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: colors.brand.primary,
+                          fontWeight: 'bold',
+                          fontSize: '12px',
+                          width: '100%'
+                        }}
+                      >
+                        <option value="">--</option>
+                        {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                       </select>
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
-                        <input type="number" value={p.quantite} onChange={e => handleUpdate(p.id, 'quantite', Number(e.target.value))} style={qtyInput} />
-                        <span style={{ color: '#cbd5e1' }}>/</span>
-                        <input type="number" value={p.quantiteDemandee || 1} onChange={e => handleUpdate(p.id, 'quantiteDemandee', Number(e.target.value))} style={{...qtyInput, color: '#94a3b8', border: 'none'}} />
+                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '2px'
+                      }}>
+                        <input 
+                          type="number" 
+                          value={p.quantite} 
+                          onChange={e => handleUpdate(p.id, 'quantite', Number(e.target.value))} 
+                          style={{
+                            width: '30px',
+                            textAlign: 'center',
+                            fontWeight: 'bold',
+                            border: `1px solid ${colors.border}`,
+                            borderRadius: '4px',
+                            padding: '2px',
+                            fontSize: '12px',
+                            backgroundColor: colors.bg.secondary,
+                            color: colors.text.primary
+                          }}
+                        />
+                        <span style={{ color: colors.text.light }}>/</span>
+                        <input 
+                          type="number" 
+                          value={p.quantiteDemandee || 1} 
+                          onChange={e => handleUpdate(p.id, 'quantiteDemandee', Number(e.target.value))} 
+                          style={{
+                            width: '30px',
+                            textAlign: 'center',
+                            border: 'none',
+                            background: 'transparent',
+                            color: colors.text.light,
+                            fontWeight: 'bold',
+                            fontSize: '12px'
+                          }}
+                        />
                       </div>
                     </td>
-                    <td style={{ padding: '8px' }}>
-                      <input type="month" value={p.datePeremption} onChange={e => handleUpdate(p.id, 'datePeremption', e.target.value)} style={inputTransparent} />
+                    <td style={{ padding: '10px' }}>
+                      <input 
+                        type="month" 
+                        value={p.datePeremption} 
+                        onChange={e => handleUpdate(p.id, 'datePeremption', e.target.value)} 
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          width: '100%',
+                          fontSize: '12px',
+                          padding: '4px',
+                          color: colors.text.primary
+                        }}
+                      />
                     </td>
-                    <td style={{ padding: '8px' }}>
-                      <input type="text" value={p.Remarques} onChange={e => handleUpdate(p.id, 'Remarques', e.target.value)} placeholder="..." style={{...inputTransparent, fontStyle: 'italic'}} />
+                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                      <select 
+                        value={p.commandeStatus || 'non-commande'} 
+                        onChange={e => handleUpdate(p.id, 'commandeStatus', e.target.value)} 
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: colors.brand.primary,
+                          fontWeight: 'bold',
+                          fontSize: '11px',
+                          padding: '2px',
+                          width: '100%'
+                        }}
+                      >
+                        <option value="non-commande">❌</option>
+                        <option value="commande">📦</option>
+                        <option value="recu">✅</option>
+                      </select>
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center' }}>
-                      <button onClick={() => deleteDoc(doc(db, "produits", p.id))} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>🗑️</button>
+                    <td style={{ padding: '10px' }}>
+                      <input 
+                        type="text" 
+                        value={p.Remarques} 
+                        onChange={e => handleUpdate(p.id, 'Remarques', e.target.value)} 
+                        placeholder="..." 
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          width: '100%',
+                          fontSize: '12px',
+                          padding: '4px',
+                          fontStyle: 'italic',
+                          color: colors.text.primary
+                        }}
+                      />
+                    </td>
+                    <td style={{
+                      padding: '10px',
+                      textAlign: 'center',
+                      '@media (max-width: 768px)': {
+                        minWidth: '48px'
+                      }
+                    }}>
+                      <button 
+                        onClick={() => deleteDoc(doc(db, "produits", p.id))} 
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          cursor: 'pointer',
+                          fontSize: '18px',
+                          padding: '6px',
+                          borderRadius: '6px',
+                          transition: 'all 0.2s ease',
+                          ':hover': {
+                            backgroundColor: colors.danger,
+                            opacity: 0.8
+                          }
+                        }}
+                        title="Supprimer"
+                      >
+                        🗑️
+                      </button>
                     </td>
                   </tr>
                 );
               })}
               {getSortedProduits().length === 0 && (
-                  <tr>
-                      <td colSpan="6" style={{textAlign:'center', padding:'20px', color:'#94a3b8'}}>Aucun produit dans ce sac pour cette catégorie.</td>
-                  </tr>
+                <tr>
+                  <td 
+                    colSpan="7" 
+                    style={{
+                      textAlign: 'center',
+                      padding: '40px 20px',
+                      color: colors.text.secondary
+                    }}
+                  >
+                    {searchTerm ? `Aucun produit trouvé pour "${searchTerm}"` : 'Aucun produit dans ce sac pour cette catégorie.'}
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
 
-        {/* SIDEBAR */}
-        {showSidebar && (
-          <div style={{ 
-            width: '280px', 
-            background: 'white', 
-            padding: '15px', 
-            borderRadius: '10px', 
-            boxShadow: '-4px 0 15px rgba(0,0,0,0.1)',
-            border: '2px solid #fee2e2',
-            height: 'fit-content'
-          }}>
-            <h4 style={{ marginTop: 0, color: '#b91c1c', borderBottom: '1px solid #fee2e2', paddingBottom: '10px' }}>⚠️ Contrôle Péremption</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              {getExpiringProducts().map(group => (
-                <div key={group.date}>
-                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#475569', marginBottom: '5px' }}>
-                    {formatMonthYear(group.date)}
-                  </div>
-                  {group.products.map(p => (
-                    <div key={p.id} style={{ 
-                      fontSize: '13px', padding: '8px', background: '#fef2f2', borderRadius: '6px', marginBottom: '5px',
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        {/* SIDEBARS - RESPONSIVE */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '20px',
+          '@media (min-width: 1200px)': {
+            display: showSidebar || showCommandePanel ? 'flex' : 'none'
+          },
+          '@media (max-width: 1199px)': {
+            display: 'flex',
+            flexDirection: 'column'
+          }
+        }}>
+          {/* SIDEBAR PÉREMPTION */}
+          {showSidebar && (
+            <div style={{
+              backgroundColor: colors.bg.primary,
+              padding: '15px',
+              borderRadius: '10px',
+              boxShadow: `0 2px 8px ${colors.shadow}`,
+              border: `2px solid ${colors.danger}`,
+              maxHeight: '600px',
+              overflowY: 'auto'
+            }}>
+              <h4 style={{
+                marginTop: 0,
+                color: colors.danger,
+                borderBottom: `1px solid ${colors.border}`,
+                paddingBottom: '10px'
+              }}>
+                ⚠️ Contrôle Péremption
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                {Object.keys(produits.reduce((acc, p) => {
+                  if (p.datePeremption) {
+                    const key = p.datePeremption;
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(p);
+                  }
+                  return acc;
+                }, {})).sort().map(date => (
+                  <div key={date}>
+                    <div style={{
+                      fontSize: '12px',
+                      fontWeight: 'bold',
+                      color: colors.text.secondary,
+                      marginBottom: '5px'
                     }}>
-                      <span>{p.nom}</span>
-                      <span style={{ fontWeight: 'bold', color: '#ef4444' }}>{p.quantite}x</span>
+                      {formatMonthYear(date)}
                     </div>
-                  ))}
-                </div>
-              ))}
-              {getExpiringProducts().length === 0 && <div style={{color: '#10b981', fontSize: '13px'}}>Rien à signaler ! ✅</div>}
+                    {produits.filter(p => p.datePeremption === date).map(p => (
+                      <div 
+                        key={p.id}
+                        style={{
+                          fontSize: '13px',
+                          padding: '8px',
+                          background: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                          borderRadius: '6px',
+                          marginBottom: '5px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <span>{p.nom}</span>
+                        <span style={{
+                          fontWeight: 'bold',
+                          color: colors.danger
+                        }}>
+                          {p.quantite}x
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                {Object.keys(produits.filter(p => p.datePeremption).reduce((acc, p) => {
+                  const key = p.datePeremption;
+                  if (!acc[key]) acc[key] = true;
+                  return acc;
+                }, {})).length === 0 && (
+                  <div style={{
+                    color: colors.success,
+                    fontSize: '13px',
+                    textAlign: 'center',
+                    padding: '20px'
+                  }}>
+                    Rien à signaler ! ✅
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
+          {/* SIDEBAR COMMANDES */}
+          {showCommandePanel && (
+            <div style={{
+              backgroundColor: colors.bg.primary,
+              padding: '15px',
+              borderRadius: '10px',
+              boxShadow: `0 2px 8px ${colors.shadow}`,
+              border: `2px solid ${colors.warning}`,
+              maxHeight: '600px',
+              overflowY: 'auto'
+            }}>
+              <h4 style={{
+                marginTop: 0,
+                color: colors.warning,
+                borderBottom: `1px solid ${colors.border}`,
+                paddingBottom: '10px'
+              }}>
+                📦 Commandes en cours
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                {(() => {
+                  const productsToOrder = getProductsToOrder();
+                  const hasData = Object.keys(productsToOrder).some(status => productsToOrder[status].length > 0);
+
+                  if (!hasData) {
+                    return (
+                      <div style={{
+                        color: colors.success,
+                        fontSize: '13px',
+                        textAlign: 'center',
+                        padding: '20px'
+                      }}>
+                        Tout est à jour ! ✅
+                      </div>
+                    );
+                  }
+
+                  const statusConfig = {
+                    'non-commande': {
+                      color: colors.danger,
+                      bg: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                      icon: '❌',
+                      label: 'À commander'
+                    },
+                    'commande': {
+                      color: colors.warning,
+                      bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(245, 158, 11, 0.1)',
+                      icon: '📦',
+                      label: 'En commande'
+                    }
+                  };
+
+                  return Object.keys(productsToOrder).map(status => (
+                    <div key={status}>
+                      <div style={{
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        color: statusConfig[status]?.color,
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                      }}>
+                        {statusConfig[status]?.icon} {statusConfig[status]?.label} ({productsToOrder[status].length})
+                      </div>
+                      {productsToOrder[status].map(p => (
+                        <div 
+                          key={p.id}
+                          style={{
+                            fontSize: '12px',
+                            padding: '10px',
+                            background: statusConfig[status]?.bg,
+                            borderRadius: '6px',
+                            marginBottom: '8px',
+                            border: `1px solid ${statusConfig[status]?.color}`
+                          }}
+                        >
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                            {p.nom}
+                          </div>
+                          <div style={{ fontSize: '11px', color: colors.text.secondary }}>
+                            Stock: {p.quantite} / {p.quantiteDemandee}
+                          </div>
+                          <div style={{ fontSize: '11px', color: colors.text.secondary }}>
+                            Catégorie: {p.categorie}
+                          </div>
+                          <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '4px' }}>
+                            Manquant: {Math.max(0, (p.quantiteDemandee || 1) - (p.quantite || 0))} unités
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
-// STYLES
-const inputTransparent = { border: 'none', background: 'transparent', width: '100%', fontSize: '13px', padding: '4px', outline: 'none' };
-const qtyInput = { width: '30px', textAlign: 'center', fontWeight: 'bold', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '2px', fontSize: '12px' };
-const sortBtnStyle = (isActive) => ({
-  border: 'none', background: isActive ? 'white' : 'transparent', 
-  boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-  padding: '5px 10px', borderRadius: '6px', cursor: 'pointer',
-  fontWeight: isActive ? 'bold' : 'normal', color: isActive ? '#2563eb' : '#64748b'
-});

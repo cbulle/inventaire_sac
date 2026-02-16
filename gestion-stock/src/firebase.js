@@ -1,10 +1,7 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
-
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -21,6 +18,21 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-export const CATEGORIES = ["Pochette Haute ext", "Pochette Basse ext","Poche divers", "Poches latérales int", "Pochette bleue (O2)", "Pochette verte (reserve solutés)", "Pochette jaune (ampouliers)", "Pochette rouge (reserve)", "Pochette vvp"];
+// VALEURS PAR DÉFAUT (utilisées si les données Firestore ne sont pas disponibles)
+export const DEFAULT_CATEGORIES = [
+  "Pochette Haute ext", 
+  "Pochette Basse ext",
+  "Poche divers", 
+  "Poches latérales int", 
+  "Pochette bleue (O2)", 
+  "Pochette verte (reserve solutés)", 
+  "Pochette jaune (ampouliers)", 
+  "Pochette rouge (reserve)", 
+  "Pochette vvp"
+];
 
-export const SACS = ["Sac 1", "Sac 2", "Sac 3"];
+export const DEFAULT_SACS = ["Sac 1", "Sac 2", "Sac 3"];
+
+// Ces constantes seront remplacées par les données dynamiques chargées depuis Firestore
+export const CATEGORIES = DEFAULT_CATEGORIES;
+export const SACS = DEFAULT_SACS;
