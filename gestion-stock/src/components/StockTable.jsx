@@ -517,9 +517,9 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
                           width: '100%'
                         }}
                       >
-                        <option value="non-commande">❌</option>
-                        <option value="commande">📦</option>
-                        <option value="recu">✅</option>
+                        <option value="non-commande">A commander</option>
+                        <option value="commande">En commande</option>
+                        <option value="recu">Reçu</option>
                       </select>
                     </td>
                     <td style={{ padding: '10px' }}>

@@ -51,7 +51,6 @@ body {
 
 /* Layout Containers */
 .app-container {
-  max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
 }
@@ -260,4 +259,32 @@ body {
 /* Flottant Action Button (FAB) Pulse Effect */
 .fab-btn:active {
   transform: scale(0.95);
+}
+
+/* Pour l'affichage en colonne sur PC quand un panel est ouvert */
+@media (min-width: 1200px) {
+  .main-layout-container {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  .table-section {
+    flex: 1;
+    min-width: 0; /* Important pour le scroll horizontal */
+  }
+}
+
+/* Animation pour la modal mobile (monte depuis le bas) */
+@media (max-width: 768px) {
+  .modal-content {
+    width: 100%;
+    max-width: none;
+    border-radius: 24px 24px 0 0 !important;
+    animation: slideUpMobile 0.4s cubic-bezier(0, 0.55, 0.45, 1);
+  }
+}
+
+@keyframes slideUpMobile {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }

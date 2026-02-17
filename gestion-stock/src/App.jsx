@@ -13,6 +13,9 @@ import StockTable from './components/StockTable';
 import { generatePDF } from './utils/pdfGenerator';
 
 function App() {
+
+  const [triggerAction, setTriggerAction] = useState(null);
+
   const [user, setUser] = useState(null);
   const [caserne, setCaserne] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -128,9 +131,23 @@ function App() {
       <div style={{padding: 20}}>
         {/* STATS CARDS */}
         <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 15, marginBottom: 25}}>
-          <StatCard icon="⚠️" label="Stock Critique" value={stockBas} color={colors.danger} colors={colors} />
-          <StatCard icon="🚚" label="En Commande" value={enCommande} color={colors.warning} colors={colors} />
-        </div>
+  <StatCard 
+    icon={<span className="material-icons">warning</span>} 
+    label="Stock Critique" 
+    value={stockBas} 
+    color={colors.danger} 
+    colors={colors} 
+    onClick={() => setTriggerAction('peremption')} 
+  />
+  <StatCard 
+    icon={<span className="material-icons">local_shipping</span>} 
+    label="En Commande" 
+    value={enCommande} 
+    color={colors.warning} 
+    colors={colors} 
+    onClick={() => setTriggerAction('commande')}
+  />
+</div>
 
         {/* ACTIONS BAR */}
         <div style={{display:'flex', gap: 10, marginBottom: 20, overflowX: 'auto'}} className="hide-scrollbar">
@@ -146,7 +163,9 @@ function App() {
         )}
 
         {/* MAIN LIST */}
-        <StockTable caserne={caserne} produits={produits} isDarkMode={isDarkMode} />
+        <StockTable caserne={caserne} produits={produits} isDarkMode={isDarkMode} externalTrigger={triggerAction}
+  setExternalTrigger={setTriggerAction}
+/>
       </div>
 
       {/* MODALS & PANELS */}
@@ -156,7 +175,7 @@ function App() {
 }
 
 // Sub-components pour le Dashboard
-const StatCard = ({ icon, label, value, color, colors }) => (
+const StatCard = ({ icon, label, value, color, colors, onClick }) => (
   <div style={{background: colors.bg.primary, padding: 15, borderRadius: 16, boxShadow: colors.shadowSmall, border: `1px solid ${colors.border}`}}>
     <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
       <div style={{fontSize: 24}}>{icon}</div>

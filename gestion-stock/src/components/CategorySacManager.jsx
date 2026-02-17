@@ -49,7 +49,7 @@ export default function CategorySacManager({ caserne, isDarkMode }) {
 
   return (
     <div style={{background: colors.bg.primary, padding: 20, borderRadius: 16, border: `1px solid ${colors.border}`}}>
-      <h3 style={{marginTop: 0, color: colors.text.primary}}>🛠️ Configuration</h3>
+      <h3 style={{marginTop: 0, color: colors.text.primary}}>Configuration du materiel</h3>
       
       {/* Tabs */}
       <div style={{display:'flex', gap: 10, marginBottom: 15}}>
