@@ -16,6 +16,11 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
   const [showCommandePanel, setShowCommandePanel] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Nouveaux états pour la modale de réception de commande
+  const [receivingItem, setReceivingItem] = useState(null);
+  const [newQuantity, setNewQuantity] = useState('');
+  const [newPeremption, setNewPeremption] = useState('');
+
   const colors = getTheme(isDarkMode);
 
   // Charger la configuration
@@ -66,6 +71,22 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
     await updateDoc(docRef, { [field]: value, dateModification: new Date().toISOString() });
   };
 
+  // Validation de la réception de commande depuis la modale
+  const handleConfirmReceive = async (e) => {
+    e.preventDefault();
+    if (!receivingItem) return;
+
+    const docRef = doc(db, "produits", receivingItem.id);
+    await updateDoc(docRef, {
+      commandeStatus: 'recu',
+      quantite: Number(newQuantity),
+      datePeremption: newPeremption,
+      dateModification: new Date().toISOString()
+    });
+
+    setReceivingItem(null); // Ferme la modale
+  };
+
   // Logique de tri
   const handleSort = (criteria) => {
     if (sortBy === criteria) {
@@ -104,7 +125,7 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
     });
   };
 
-  // === NOUVELLE LOGIQUE : Vérifier si un produit est périmé (mois actuel ou passé) ===
+  // Vérifier si un produit est périmé (mois actuel ou passé)
   const isProductExpired = (dateStr) => {
     if (!dateStr) return false;
     const [year, month] = dateStr.split('-');
@@ -126,7 +147,6 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
     });
 
     productsNeedingOrder.forEach(p => {
-      // Si le produit est périmé mais n'avait pas de statut de commande explicite, on force 'non-commande'
       const status = p.commandeStatus || 'non-commande';
       if (!grouped[status]) grouped[status] = [];
       grouped[status].push(p);
@@ -140,6 +160,13 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
     const [year, month] = dateStr.split('-');
     const date = new Date(year, month - 1);
     return date.toLocaleString('fr-FR', { month: 'long', year: 'numeric' }).toUpperCase();
+  };
+
+  // Style partagé pour les inputs de la modale
+  const inputStyle = {
+    width: '100%', padding: '12px', borderRadius: '8px',
+    border: `1px solid ${colors.border}`, background: colors.bg.secondary,
+    color: colors.text.primary, boxSizing: 'border-box', fontSize: '14px', marginBottom: '15px'
   };
 
   return (
@@ -234,7 +261,6 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
               {getSortedProduits().map(p => {
                 const isLowStock = (p.quantite || 0) < (p.quantiteDemandee || 1);
                 const isExpired = isProductExpired(p.datePeremption);
-                // Si l'un des deux (stock ou péremption) nécessite une commande et que le statut est "non-commande" ou indéfini
                 let effectiveStatus = p.commandeStatus || 'non-commande';
                 
                 const commandeStatusColor = {
@@ -246,12 +272,10 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
                 return (
                   <tr key={p.id} style={{
                       borderTop: `1px solid ${colors.border}`,
-                      // Afficher la couleur de ligne selon l'alerte
                       background: (isLowStock || isExpired) && effectiveStatus !== 'recu' ? commandeStatusColor[effectiveStatus] : colors.bg.primary,
                       transition: 'all 0.2s ease'
                     }}>
                     <td style={{ padding: '10px' }}>
-                      {/* Utilisation de Textarea pour gérer le retour à la ligne du Nom */}
                       <textarea 
                         value={p.nom} onChange={e => handleUpdate(p.id, 'nom', e.target.value)} 
                         rows={1}
@@ -291,7 +315,6 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
                       </select>
                     </td>
                     <td style={{ padding: '10px' }}>
-                       {/* Utilisation de Textarea pour la flexibilité des remarques */}
                       <textarea 
                         value={p.Remarques} onChange={e => handleUpdate(p.id, 'Remarques', e.target.value)} 
                         placeholder="..." rows={1}
@@ -390,7 +413,7 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
                             <div style={{ fontSize: '11px', color: colors.text.secondary }}>Stock: {p.quantite} / {p.quantiteDemandee}</div>
                             <div style={{ fontSize: '11px', color: colors.text.secondary }}>Catégorie: {p.categorie}</div>
                             
-                            {/* Actions rapides dans la sidebar */}
+                            {/* Bouton Commander */}
                             {status === 'non-commande' && (
                               <button onClick={() => handleUpdate(p.id, 'commandeStatus', 'commande')}
                                 style={{ marginTop: '8px', padding: '6px 12px', background: colors.brand.primary, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', width: '100%', fontWeight: 'bold' }}>
@@ -398,8 +421,14 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
                               </button>
                             )}
                             
+                            {/* Bouton Commande Reçue qui ouvre la modale */}
                             {status === 'commande' && (
-                              <button onClick={() => handleUpdate(p.id, 'commandeStatus', 'recu')}
+                              <button onClick={() => {
+                                setReceivingItem(p);
+                                // On pré-remplit la quantité avec la quantité demandée (qui est le but de la commande)
+                                setNewQuantity(p.quantiteDemandee || 1);
+                                setNewPeremption(''); // On vide pour forcer l'utilisateur à vérifier la nouvelle date
+                              }}
                                 style={{ marginTop: '8px', padding: '6px 12px', background: colors.success, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', width: '100%', fontWeight: 'bold' }}>
                                 Commande reçue
                               </button>
@@ -415,6 +444,75 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
           )}
         </div>
       </div>
+
+      {/* MODALE DE RÉCEPTION DE COMMANDE */}
+      {receivingItem && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(3px)',
+          zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{
+            background: colors.bg.primary, padding: '25px', borderRadius: '16px',
+            width: '90%', maxWidth: '400px', boxShadow: `0 10px 25px ${colors.shadow}`
+          }}>
+            <h3 style={{ marginTop: 0, color: colors.text.primary, marginBottom: '20px' }}>
+              📦 Réception : {receivingItem.nom}
+            </h3>
+            
+            <form onSubmit={handleConfirmReceive}>
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: 'bold', color: colors.text.secondary, textTransform: 'uppercase' }}>
+                  Nouvelle quantité totale en stock
+                </label>
+                <input 
+                  type="number" 
+                  value={newQuantity} 
+                  onChange={(e) => setNewQuantity(e.target.value)}
+                  style={inputStyle}
+                  required
+                />
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: 'bold', color: colors.text.secondary, textTransform: 'uppercase' }}>
+                  Nouvelle date de péremption
+                </label>
+                <input 
+                  type="month" 
+                  value={newPeremption} 
+                  onChange={(e) => setNewPeremption(e.target.value)}
+                  style={inputStyle}
+                  // Le champ "required" ici force l'utilisateur à entrer la date du nouveau lot
+                  required 
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setReceivingItem(null)}
+                  style={{
+                    padding: '10px 15px', borderRadius: '8px', border: 'none',
+                    background: colors.bg.tertiary, color: colors.text.primary, cursor: 'pointer', fontWeight: 'bold'
+                  }}
+                >
+                  Annuler
+                </button>
+                <button 
+                  type="submit"
+                  style={{
+                    padding: '10px 15px', borderRadius: '8px', border: 'none',
+                    background: colors.success, color: 'white', cursor: 'pointer', fontWeight: 'bold'
+                  }}
+                >
+                  Valider
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
