@@ -30,9 +30,14 @@ export default function ProductForm({ caserne, isDarkMode }) {
   }, [caserne]);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    await addDoc(collection(db, "produits"), { ...item, caserne, dateModification: new Date().toISOString() });
-    setIsOpen(false);
+  e.preventDefault();
+  // On force la caserne provenant des props, l'utilisateur ne peut pas la changer
+  const productData = {
+    ...item,
+    caserne: caserne, 
+    createdAt: new Date()
+  };
+  await addDoc(collection(db, "produits"), productData);    setIsOpen(false);
     setItem(prev => ({...prev, nom: '', quantite: 1, Remarques: ''})); 
   };
 

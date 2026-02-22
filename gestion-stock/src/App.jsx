@@ -37,36 +37,58 @@ function App() {
     document.body.style.color = colors.text.primary;
   }, [isDarkMode, colors]);
 
-  // Auth & Data Logic (Inchangée pour la stabilité)
+  // Auth & Data Logic
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-        const userDocRef = doc(db, "users", currentUser.uid);
-        const userDoc = await getDoc(userDocRef);
-        if (userDoc.exists()) {
-          setCaserne(userDoc.data().caserne);
-          setUser(currentUser);
-        } else {
-          alert("Compte non configuré pour une caserne.");
-          await signOut(auth);
+        setUser(currentUser);
+        try {
+          // 1. On va chercher la caserne de l'utilisateur
+          const userDocRef = doc(db, "users", currentUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setCaserne(userData.caserne);
+
+            // 2. On écoute les produits SEULEMENT pour cette caserne
+            const q = query(
+              collection(db, "produits"),
+              where("caserne", "==", userData.caserne)
+            );
+
+            const unsubProduits = onSnapshot(q, (snapshot) => {
+              const prods = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+              setProduits(prods);
+              setLoading(false);
+            }, (error) => {
+              console.error("Erreur de lecture des produits:", error);
+              setLoading(false);
+            });
+
+            return () => unsubProduits();
+          } else {
+            console.error("Aucun document utilisateur trouvé dans Firestore.");
+            alert("Erreur : Votre compte n'est pas lié à une caserne.");
+            await signOut(auth);
+            setLoading(false);
+          }
+        } catch (error) {
+          console.error("Erreur de permission (profil utilisateur):", error);
+          setLoading(false);
         }
       } else {
         setUser(null);
         setCaserne(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => unsubscribeAuth();
   }, []);
 
-  useEffect(() => {
-    if (!caserne) return;
-    const q = query(collection(db, "produits"), where("caserne", "==", caserne));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setProduits(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
-  }, [caserne]);
+  
+
 
   const handleLogin = (e) => {
     e.preventDefault();

@@ -37,7 +37,7 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
     return () => unsubscribe();
   }, [caserne]);
 
-  // Charger les produits si pas fournis
+  // Charger les produits
   useEffect(() => {
     if (initialProduits.length > 0) {
       setProduits(initialProduits);
@@ -104,15 +104,29 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
     });
   };
 
+  // === NOUVELLE LOGIQUE : Vérifier si un produit est périmé (mois actuel ou passé) ===
+  const isProductExpired = (dateStr) => {
+    if (!dateStr) return false;
+    const [year, month] = dateStr.split('-');
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1;
+    return parseInt(year) < currentYear || (parseInt(year) === currentYear && parseInt(month) <= currentMonth);
+  };
+
   // Produits à commander
   const getProductsToOrder = () => {
     const grouped = {};
     const productsNeedingOrder = produits.filter(p => {
       const isLowStock = (p.quantite || 0) < (p.quantiteDemandee || 1);
-      return isLowStock && p.commandeStatus !== 'recu';
+      const isExpired = isProductExpired(p.datePeremption);
+      
+      // Si le stock est bas OU que c'est périmé, et que ce n'est pas déjà reçu
+      return (isLowStock || isExpired) && p.commandeStatus !== 'recu';
     });
 
     productsNeedingOrder.forEach(p => {
+      // Si le produit est périmé mais n'avait pas de statut de commande explicite, on force 'non-commande'
       const status = p.commandeStatus || 'non-commande';
       if (!grouped[status]) grouped[status] = [];
       grouped[status].push(p);
@@ -131,52 +145,24 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
   return (
     <div>
       {/* BARRE DE RECHERCHE */}
-      <div style={{
-        marginBottom: '20px',
-        '@media (max-width: 768px)': {
-          marginBottom: '15px'
-        }
-      }}>
-        <SearchBar 
-          onSearch={setSearchTerm} 
-          isDarkMode={isDarkMode}
-          placeholder="Rechercher un produit..."
-        />
+      <div style={{ marginBottom: '20px', '@media (max-width: 768px)': { marginBottom: '15px' } }}>
+        <SearchBar onSearch={setSearchTerm} isDarkMode={isDarkMode} placeholder="Rechercher un produit..." />
       </div>
 
       {/* ONGLET SACS */}
       <div style={{
-        display: 'flex',
-        gap: '10px',
-        marginBottom: '20px',
-        borderBottom: `2px solid ${colors.border}`,
-        paddingBottom: '10px',
-        overflowX: 'auto',
-        scrollbarWidth: 'none',
-        '@media (max-width: 768px)': {
-          marginBottom: '15px',
-          gap: '8px'
-        }
+        display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: `2px solid ${colors.border}`,
+        paddingBottom: '10px', overflowX: 'auto', scrollbarWidth: 'none'
       }}>
         {sacs.map(sac => (
           <button 
-            key={sac} 
-            onClick={() => setCurrentSac(sac)}
+            key={sac} onClick={() => setCurrentSac(sac)}
             style={{
-              padding: '10px 16px',
-              border: 'none',
+              padding: '10px 16px', border: 'none',
               background: currentSac === sac ? colors.brand.primary : 'transparent',
               color: currentSac === sac ? 'white' : colors.text.secondary,
-              borderRadius: '8px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              fontSize: '14px',
-              transition: 'all 0.2s ease',
-              '@media (max-width: 768px)': {
-                padding: '8px 12px',
-                fontSize: '12px'
-              }
+              borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap',
+              fontSize: '14px', transition: 'all 0.2s ease'
             }}
           >
             {sac}
@@ -185,50 +171,17 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
       </div>
 
       {/* BARRE D'OUTILS */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '10px',
-        marginBottom: '15px',
-        '@media (max-width: 768px)': {
-          gap: '8px'
-        }
-      }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
         {/* Filtres Catégories */}
-        <div style={{
-          display: 'flex',
-          gap: '5px',
-          overflowX: 'auto',
-          paddingBottom: '5px',
-          scrollbarWidth: 'none',
-          flex: '1 1 auto',
-          minWidth: '0',
-          '@media (max-width: 768px)': {
-            gap: '4px',
-            width: '100%'
-          }
-        }}>
+        <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '5px', scrollbarWidth: 'none', flex: '1 1 auto', minWidth: '0' }}>
           {['Toutes', ...categories].map(cat => (
             <button 
-              key={cat} 
-              onClick={() => setFilter(cat)} 
+              key={cat} onClick={() => setFilter(cat)} 
               style={{
-                padding: '6px 12px',
-                borderRadius: '15px',
-                border: 'none',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
+                padding: '6px 12px', borderRadius: '15px', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                 background: filter === cat ? colors.brand.primary : colors.bg.tertiary,
                 color: filter === cat ? 'white' : colors.text.secondary,
-                fontSize: '12px',
-                fontWeight: filter === cat ? 'bold' : 'normal',
-                transition: 'all 0.2s ease',
-                '@media (max-width: 768px)': {
-                  padding: '5px 10px',
-                  fontSize: '11px'
-                }
+                fontSize: '12px', fontWeight: filter === cat ? 'bold' : 'normal', transition: 'all 0.2s ease'
               }}
             >
               {cat}
@@ -237,111 +190,21 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
         </div>
 
         {/* Boutons d'actions */}
-        <div style={{
-          display: 'flex',
-          gap: '8px',
-          '@media (max-width: 768px)': {
-            gap: '6px',
-            width: '100%'
-          }
-        }}>
-          <div style={{
-            display: 'flex',
-            background: colors.bg.tertiary,
-            borderRadius: '8px',
-            padding: '2px',
-            gap: '2px'
-          }}>
-            <button 
-              onClick={() => handleSort('nom')} 
-              style={{
-                border: 'none',
-                background: sortBy === 'nom' ? colors.bg.primary : 'transparent',
-                color: sortBy === 'nom' ? colors.brand.primary : colors.text.secondary,
-                padding: '6px 10px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: sortBy === 'nom' ? 'bold' : 'normal',
-                fontSize: '12px',
-                '@media (max-width: 768px)': {
-                  padding: '5px 8px'
-                }
-              }}
-              title="Trier par nom"
-            >
-              Abc
-            </button>
-            <button 
-              onClick={() => handleSort('peremption')} 
-              style={{
-                border: 'none',
-                background: sortBy === 'peremption' ? colors.bg.primary : 'transparent',
-                color: sortBy === 'peremption' ? colors.brand.primary : colors.text.secondary,
-                padding: '6px 10px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: sortBy === 'peremption' ? 'bold' : 'normal',
-                fontSize: '12px',
-                '@media (max-width: 768px)': {
-                  padding: '5px 8px'
-                }
-              }}
-              title="Trier par péremption"
-            >
-              <i class="material-icons">date_range</i>
-            </button>
-            
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', background: colors.bg.tertiary, borderRadius: '8px', padding: '2px', gap: '2px' }}>
+            <button onClick={() => handleSort('nom')} 
+              style={{ border: 'none', background: sortBy === 'nom' ? colors.bg.primary : 'transparent', color: sortBy === 'nom' ? colors.brand.primary : colors.text.secondary, padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontWeight: sortBy === 'nom' ? 'bold' : 'normal', fontSize: '12px' }} title="Trier par nom">Abc</button>
+            <button onClick={() => handleSort('peremption')} 
+              style={{ border: 'none', background: sortBy === 'peremption' ? colors.bg.primary : 'transparent', color: sortBy === 'peremption' ? colors.brand.primary : colors.text.secondary, padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontWeight: sortBy === 'peremption' ? 'bold' : 'normal', fontSize: '12px' }} title="Trier par péremption"><i className="material-icons">date_range</i></button>
           </div>
 
-          <button 
-            onClick={() => setShowSidebar(!showSidebar)}
-            style={{
-              background: showSidebar ? colors.danger : colors.bg.primary,
-              border: `1px solid ${colors.danger}`,
-              color: showSidebar ? 'white' : colors.danger,
-              padding: '6px 12px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              fontSize: '12px',
-              whiteSpace: 'nowrap',
-              minHeight: '48px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              '@media (max-width: 768px)': {
-                padding: '8px 10px',
-                minHeight: '48px'
-              }
-            }}
-            title="Afficher/masquer les péremptions"
-          >
+          <button onClick={() => setShowSidebar(!showSidebar)}
+            style={{ background: showSidebar ? colors.danger : colors.bg.primary, border: `1px solid ${colors.danger}`, color: showSidebar ? 'white' : colors.danger, padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', whiteSpace: 'nowrap', minHeight: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Afficher/masquer les péremptions">
             {showSidebar ? 'Fermer' : '⚠️'}
           </button>
 
-          <button 
-            onClick={() => setShowCommandePanel(!showCommandePanel)}
-            style={{
-              background: showCommandePanel ? colors.warning : colors.bg.primary,
-              border: `1px solid ${colors.warning}`,
-              color: showCommandePanel ? 'white' : colors.warning,
-              padding: '6px 12px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              fontSize: '12px',
-              whiteSpace: 'nowrap',
-              minHeight: '48px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              '@media (max-width: 768px)': {
-                padding: '8px 10px',
-                minHeight: '48px'
-              }
-            }}
-            title="Afficher/masquer les commandes"
-          >
+          <button onClick={() => setShowCommandePanel(!showCommandePanel)}
+            style={{ background: showCommandePanel ? colors.warning : colors.bg.primary, border: `1px solid ${colors.warning}`, color: showCommandePanel ? 'white' : colors.warning, padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', whiteSpace: 'nowrap', minHeight: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Afficher/masquer les commandes">
             {showCommandePanel ? 'Fermer' : '📦'}
           </button>
         </div>
@@ -349,54 +212,31 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
 
       {/* CONTENU PRINCIPAL */}
       <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr',
-        gap: '20px',
-        '@media (min-width: 1200px)': {
-          gridTemplateColumns: showSidebar || showCommandePanel ? '1fr 300px' : '1fr'
-        },
-        '@media (max-width: 768px)': {
-          gap: '15px'
-        }
+        display: 'grid', gridTemplateColumns: '1fr', gap: '20px',
+        '@media (min-width: 1200px)': { gridTemplateColumns: showSidebar || showCommandePanel ? '1fr 300px' : '1fr' }
       }}>
         
         {/* TABLEAU */}
-        <div style={{
-          overflowX: 'auto',
-          borderRadius: '10px',
-          boxShadow: `0 2px 8px ${colors.shadow}`,
-          backgroundColor: colors.bg.primary,
-          '@media (max-width: 768px)': {
-            borderRadius: '8px'
-          }
-        }}>
-          <table style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            minWidth: '700px'
-          }}>
+        <div style={{ overflowX: 'auto', borderRadius: '10px', boxShadow: `0 2px 8px ${colors.shadow}`, backgroundColor: colors.bg.primary }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
             <thead>
-              <tr style={{
-                background: colors.bg.tertiary,
-                color: colors.text.secondary,
-                fontSize: '11px',
-                textAlign: 'left',
-                textTransform: 'uppercase'
-              }}>
-                <th style={{ padding: '12px', '@media (max-width: 768px)': { padding: '10px' } }}>
-                  Nom {sortBy === 'nom' && (sortOrder === 'asc' ? '↓' : '↑')}
-                </th>
-                <th style={{ padding: '12px' }}>Catégorie</th>
-                <th style={{ padding: '12px', textAlign: 'center' }}>Qty (R/A)</th>
-                <th style={{ padding: '12px' }}>Péremption {sortBy === 'peremption' && (sortOrder === 'asc' ? '↓' : '↑')}</th>
-                <th style={{ padding: '12px' }}>Commande</th>
-                <th style={{ padding: '12px' }}>Remarques</th>
+              <tr style={{ background: colors.bg.tertiary, color: colors.text.secondary, fontSize: '11px', textAlign: 'left', textTransform: 'uppercase' }}>
+                <th style={{ padding: '12px', minWidth: '150px' }}>Nom {sortBy === 'nom' && (sortOrder === 'asc' ? '↓' : '↑')}</th>
+                <th style={{ padding: '12px', minWidth: '100px' }}>Catégorie</th>
+                <th style={{ padding: '12px', textAlign: 'center', minWidth: '90px' }}>Qty (R/A)</th>
+                <th style={{ padding: '12px', minWidth: '120px' }}>Péremption {sortBy === 'peremption' && (sortOrder === 'asc' ? '↓' : '↑')}</th>
+                <th style={{ padding: '12px', minWidth: '100px' }}>Commande</th>
+                <th style={{ padding: '12px', minWidth: '200px' }}>Remarques</th>
                 <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {getSortedProduits().map(p => {
                 const isLowStock = (p.quantite || 0) < (p.quantiteDemandee || 1);
+                const isExpired = isProductExpired(p.datePeremption);
+                // Si l'un des deux (stock ou péremption) nécessite une commande et que le statut est "non-commande" ou indéfini
+                let effectiveStatus = p.commandeStatus || 'non-commande';
+                
                 const commandeStatusColor = {
                   'recu': isDarkMode ? 'rgba(52, 211, 153, 0.15)' : 'rgba(16, 185, 129, 0.1)',
                   'commande': isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(245, 158, 11, 0.1)',
@@ -404,166 +244,68 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
                 };
                 
                 return (
-                  <tr 
-                    key={p.id} 
-                    style={{
+                  <tr key={p.id} style={{
                       borderTop: `1px solid ${colors.border}`,
-                      background: isLowStock ? commandeStatusColor[p.commandeStatus] || commandeStatusColor['non-commande'] : colors.bg.primary,
+                      // Afficher la couleur de ligne selon l'alerte
+                      background: (isLowStock || isExpired) && effectiveStatus !== 'recu' ? commandeStatusColor[effectiveStatus] : colors.bg.primary,
                       transition: 'all 0.2s ease'
-                    }}
-                  >
+                    }}>
                     <td style={{ padding: '10px' }}>
-                      <input 
-                        type="text" 
-                        value={p.nom} 
-                        onChange={e => handleUpdate(p.id, 'nom', e.target.value)} 
+                      {/* Utilisation de Textarea pour gérer le retour à la ligne du Nom */}
+                      <textarea 
+                        value={p.nom} onChange={e => handleUpdate(p.id, 'nom', e.target.value)} 
+                        rows={1}
                         style={{
-                          border: 'none',
-                          background: 'transparent',
-                          width: '100%',
-                          fontSize: '13px',
-                          padding: '4px',
-                          outline: 'none',
-                          color: colors.text.primary,
-                          '@media (max-width: 768px)': {
-                            fontSize: '12px'
-                          }
+                          border: 'none', background: 'transparent', width: '100%', fontSize: '13px',
+                          padding: '4px', outline: 'none', color: colors.text.primary,
+                          resize: 'vertical', minHeight: '30px', fontFamily: 'inherit', overflow: 'hidden'
                         }}
                       />
                     </td>
                     <td style={{ padding: '10px' }}>
-                      <select 
-                        value={p.categorie} 
-                        onChange={e => handleUpdate(p.id, 'categorie', e.target.value)} 
-                        style={{
-                          border: 'none',
-                          background: 'transparent',
-                          color: colors.brand.primary,
-                          fontWeight: 'bold',
-                          fontSize: '12px',
-                          width: '100%'
-                        }}
-                      >
+                      <select value={p.categorie} onChange={e => handleUpdate(p.id, 'categorie', e.target.value)} 
+                        style={{ border: 'none', background: 'transparent', color: colors.brand.primary, fontWeight: 'bold', fontSize: '12px', width: '100%' }}>
                         <option value="">--</option>
                         {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                       </select>
                     </td>
                     <td style={{ padding: '10px', textAlign: 'center' }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '2px'
-                      }}>
-                        <input 
-                          type="number" 
-                          value={p.quantite} 
-                          onChange={e => handleUpdate(p.id, 'quantite', Number(e.target.value))} 
-                          style={{
-                            width: '30px',
-                            textAlign: 'center',
-                            fontWeight: 'bold',
-                            border: `1px solid ${colors.border}`,
-                            borderRadius: '4px',
-                            padding: '2px',
-                            fontSize: '12px',
-                            backgroundColor: colors.bg.secondary,
-                            color: colors.text.primary
-                          }}
-                        />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
+                        <input type="number" value={p.quantite} onChange={e => handleUpdate(p.id, 'quantite', Number(e.target.value))} 
+                          style={{ width: '35px', textAlign: 'center', fontWeight: 'bold', border: `1px solid ${colors.border}`, borderRadius: '4px', padding: '4px 2px', fontSize: '12px', backgroundColor: colors.bg.secondary, color: colors.text.primary }} />
                         <span style={{ color: colors.text.light }}>/</span>
-                        <input 
-                          type="number" 
-                          value={p.quantiteDemandee || 1} 
-                          onChange={e => handleUpdate(p.id, 'quantiteDemandee', Number(e.target.value))} 
-                          style={{
-                            width: '30px',
-                            textAlign: 'center',
-                            border: 'none',
-                            background: 'transparent',
-                            color: colors.text.light,
-                            fontWeight: 'bold',
-                            fontSize: '12px'
-                          }}
-                        />
+                        <input type="number" value={p.quantiteDemandee || 1} onChange={e => handleUpdate(p.id, 'quantiteDemandee', Number(e.target.value))} 
+                          style={{ width: '35px', textAlign: 'center', border: 'none', background: 'transparent', color: colors.text.light, fontWeight: 'bold', fontSize: '12px' }} />
                       </div>
                     </td>
                     <td style={{ padding: '10px' }}>
-                      <input 
-                        type="month" 
-                        value={p.datePeremption} 
-                        onChange={e => handleUpdate(p.id, 'datePeremption', e.target.value)} 
-                        style={{
-                          border: 'none',
-                          background: 'transparent',
-                          width: '100%',
-                          fontSize: '12px',
-                          padding: '4px',
-                          color: colors.text.primary
-                        }}
-                      />
+                      <input type="month" value={p.datePeremption} onChange={e => handleUpdate(p.id, 'datePeremption', e.target.value)} 
+                        style={{ border: 'none', background: 'transparent', width: '100%', fontSize: '12px', padding: '4px', color: isExpired ? colors.danger : colors.text.primary, fontWeight: isExpired ? 'bold' : 'normal' }} />
                     </td>
                     <td style={{ padding: '10px', textAlign: 'center' }}>
-                      <select 
-                        value={p.commandeStatus || 'non-commande'} 
-                        onChange={e => handleUpdate(p.id, 'commandeStatus', e.target.value)} 
-                        style={{
-                          border: 'none',
-                          background: 'transparent',
-                          color: colors.brand.primary,
-                          fontWeight: 'bold',
-                          fontSize: '11px',
-                          padding: '2px',
-                          width: '100%'
-                        }}
-                      >
+                      <select value={effectiveStatus} onChange={e => handleUpdate(p.id, 'commandeStatus', e.target.value)} 
+                        style={{ border: 'none', background: 'transparent', color: colors.brand.primary, fontWeight: 'bold', fontSize: '11px', padding: '2px', width: '100%' }}>
                         <option value="non-commande">A commander</option>
                         <option value="commande">En commande</option>
                         <option value="recu">Reçu</option>
                       </select>
                     </td>
                     <td style={{ padding: '10px' }}>
-                      <input 
-                        type="text" 
-                        value={p.Remarques} 
-                        onChange={e => handleUpdate(p.id, 'Remarques', e.target.value)} 
-                        placeholder="..." 
+                       {/* Utilisation de Textarea pour la flexibilité des remarques */}
+                      <textarea 
+                        value={p.Remarques} onChange={e => handleUpdate(p.id, 'Remarques', e.target.value)} 
+                        placeholder="..." rows={1}
                         style={{
-                          border: 'none',
-                          background: 'transparent',
-                          width: '100%',
-                          fontSize: '12px',
-                          padding: '4px',
-                          fontStyle: 'italic',
-                          color: colors.text.primary
+                          border: 'none', background: 'transparent', width: '100%', fontSize: '12px',
+                          padding: '4px', fontStyle: 'italic', color: colors.text.primary,
+                          resize: 'vertical', minHeight: '30px', fontFamily: 'inherit'
                         }}
                       />
                     </td>
-                    <td style={{
-                      padding: '10px',
-                      textAlign: 'center',
-                      '@media (max-width: 768px)': {
-                        minWidth: '48px'
-                      }
-                    }}>
-                      <button 
-                        onClick={() => deleteDoc(doc(db, "produits", p.id))} 
-                        style={{
-                          border: 'none',
-                          background: 'transparent',
-                          cursor: 'pointer',
-                          fontSize: '18px',
-                          padding: '6px',
-                          borderRadius: '6px',
-                          transition: 'all 0.2s ease',
-                          ':hover': {
-                            backgroundColor: colors.danger,
-                            opacity: 0.8
-                          }
-                        }}
-                        title="Supprimer"
-                      >
-                        <i class="material-icons">delete</i>
+                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                      <button onClick={() => deleteDoc(doc(db, "produits", p.id))} 
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '18px', padding: '6px', borderRadius: '6px', transition: 'all 0.2s ease', color: colors.danger }} title="Supprimer">
+                        <i className="material-icons">delete</i>
                       </button>
                     </td>
                   </tr>
@@ -571,14 +313,7 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
               })}
               {getSortedProduits().length === 0 && (
                 <tr>
-                  <td 
-                    colSpan="7" 
-                    style={{
-                      textAlign: 'center',
-                      padding: '40px 20px',
-                      color: colors.text.secondary
-                    }}
-                  >
+                  <td colSpan="7" style={{ textAlign: 'center', padding: '40px 20px', color: colors.text.secondary }}>
                     {searchTerm ? `Aucun produit trouvé pour "${searchTerm}"` : 'Aucun produit dans ce sac pour cette catégorie.'}
                   </td>
                 </tr>
@@ -588,37 +323,12 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
         </div>
 
         {/* SIDEBARS - RESPONSIVE */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '20px',
-          '@media (min-width: 1200px)': {
-            display: showSidebar || showCommandePanel ? 'flex' : 'none'
-          },
-          '@media (max-width: 1199px)': {
-            display: 'flex',
-            flexDirection: 'column'
-          }
-        }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', '@media (min-width: 1200px)': { display: showSidebar || showCommandePanel ? 'flex' : 'none' } }}>
+          
           {/* SIDEBAR PÉREMPTION */}
           {showSidebar && (
-            <div style={{
-              backgroundColor: colors.bg.primary,
-              padding: '15px',
-              borderRadius: '10px',
-              boxShadow: `0 2px 8px ${colors.shadow}`,
-              border: `2px solid ${colors.danger}`,
-              maxHeight: '600px',
-              overflowY: 'auto'
-            }}>
-              <h4 style={{
-                marginTop: 0,
-                color: colors.danger,
-                borderBottom: `1px solid ${colors.border}`,
-                paddingBottom: '10px'
-              }}>
-                ⚠️ Contrôle Péremption
-              </h4>
+            <div style={{ backgroundColor: colors.bg.primary, padding: '15px', borderRadius: '10px', boxShadow: `0 2px 8px ${colors.shadow}`, border: `2px solid ${colors.danger}`, maxHeight: '600px', overflowY: 'auto' }}>
+              <h4 style={{ marginTop: 0, color: colors.danger, borderBottom: `1px solid ${colors.border}`, paddingBottom: '10px' }}>⚠️ Contrôle Péremption</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 {Object.keys(produits.reduce((acc, p) => {
                   if (p.datePeremption) {
@@ -629,52 +339,19 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
                   return acc;
                 }, {})).sort().map(date => (
                   <div key={date}>
-                    <div style={{
-                      fontSize: '12px',
-                      fontWeight: 'bold',
-                      color: colors.text.secondary,
-                      marginBottom: '5px'
-                    }}>
-                      {formatMonthYear(date)}
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: isProductExpired(date) ? colors.danger : colors.text.secondary, marginBottom: '5px' }}>
+                      {formatMonthYear(date)} {isProductExpired(date) && "(Périmé)"}
                     </div>
                     {produits.filter(p => p.datePeremption === date).map(p => (
-                      <div 
-                        key={p.id}
-                        style={{
-                          fontSize: '13px',
-                          padding: '8px',
-                          background: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                          borderRadius: '6px',
-                          marginBottom: '5px',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center'
-                        }}
-                      >
+                      <div key={p.id} style={{ fontSize: '13px', padding: '8px', background: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)', borderRadius: '6px', marginBottom: '5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{p.nom}</span>
-                        <span style={{
-                          fontWeight: 'bold',
-                          color: colors.danger
-                        }}>
-                          {p.quantite}x
-                        </span>
+                        <span style={{ fontWeight: 'bold', color: colors.danger }}>{p.quantite}x</span>
                       </div>
                     ))}
                   </div>
                 ))}
-                {Object.keys(produits.filter(p => p.datePeremption).reduce((acc, p) => {
-                  const key = p.datePeremption;
-                  if (!acc[key]) acc[key] = true;
-                  return acc;
-                }, {})).length === 0 && (
-                  <div style={{
-                    color: colors.success,
-                    fontSize: '13px',
-                    textAlign: 'center',
-                    padding: '20px'
-                  }}>
-                    Rien à signaler ! ✅
-                  </div>
+                {produits.filter(p => p.datePeremption).length === 0 && (
+                  <div style={{ color: colors.success, fontSize: '13px', textAlign: 'center', padding: '20px' }}>Aucune date de péremption définie !</div>
                 )}
               </div>
             </div>
@@ -682,23 +359,8 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
 
           {/* SIDEBAR COMMANDES */}
           {showCommandePanel && (
-            <div style={{
-              backgroundColor: colors.bg.primary,
-              padding: '15px',
-              borderRadius: '10px',
-              boxShadow: `0 2px 8px ${colors.shadow}`,
-              border: `2px solid ${colors.warning}`,
-              maxHeight: '600px',
-              overflowY: 'auto'
-            }}>
-              <h4 style={{
-                marginTop: 0,
-                color: colors.warning,
-                borderBottom: `1px solid ${colors.border}`,
-                paddingBottom: '10px'
-              }}>
-                📦 Commandes en cours
-              </h4>
+            <div style={{ backgroundColor: colors.bg.primary, padding: '15px', borderRadius: '10px', boxShadow: `0 2px 8px ${colors.shadow}`, border: `2px solid ${colors.warning}`, maxHeight: '600px', overflowY: 'auto' }}>
+              <h4 style={{ marginTop: 0, color: colors.warning, borderBottom: `1px solid ${colors.border}`, paddingBottom: '10px' }}>📦 Commandes en cours</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 {(() => {
                   const productsToOrder = getProductsToOrder();
@@ -706,71 +368,45 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
 
                   if (!hasData) {
                     return (
-                      <div style={{
-                        color: colors.success,
-                        fontSize: '13px',
-                        textAlign: 'center',
-                        padding: '20px'
-                      }}>
-                        Tout est à jour ! ✅
-                      </div>
+                      <div style={{ color: colors.success, fontSize: '13px', textAlign: 'center', padding: '20px' }}>Tout est à jour ! ✅</div>
                     );
                   }
 
                   const statusConfig = {
-                    'non-commande': {
-                      color: colors.danger,
-                      bg: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                      icon: '❌',
-                      label: 'À commander'
-                    },
-                    'commande': {
-                      color: colors.warning,
-                      bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(245, 158, 11, 0.1)',
-                      icon: '📦',
-                      label: 'En commande'
-                    }
+                    'non-commande': { color: colors.danger, bg: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)', icon: '❌', label: 'À commander' },
+                    'commande': { color: colors.warning, bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(245, 158, 11, 0.1)', icon: '📦', label: 'En commande' }
                   };
 
                   return Object.keys(productsToOrder).map(status => (
                     <div key={status}>
-                      <div style={{
-                        fontSize: '12px',
-                        fontWeight: 'bold',
-                        color: statusConfig[status]?.color,
-                        marginBottom: '8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '5px'
-                      }}>
+                      <div style={{ fontSize: '12px', fontWeight: 'bold', color: statusConfig[status]?.color, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
                         {statusConfig[status]?.icon} {statusConfig[status]?.label} ({productsToOrder[status].length})
                       </div>
-                      {productsToOrder[status].map(p => (
-                        <div 
-                          key={p.id}
-                          style={{
-                            fontSize: '12px',
-                            padding: '10px',
-                            background: statusConfig[status]?.bg,
-                            borderRadius: '6px',
-                            marginBottom: '8px',
-                            border: `1px solid ${statusConfig[status]?.color}`
-                          }}
-                        >
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-                            {p.nom}
+                      {productsToOrder[status].map(p => {
+                        const isExpired = isProductExpired(p.datePeremption);
+                        return (
+                          <div key={p.id} style={{ fontSize: '12px', padding: '10px', background: statusConfig[status]?.bg, borderRadius: '6px', marginBottom: '8px', border: `1px solid ${statusConfig[status]?.color}` }}>
+                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{p.nom} {isExpired && '⚠️ (Périmé)'}</div>
+                            <div style={{ fontSize: '11px', color: colors.text.secondary }}>Stock: {p.quantite} / {p.quantiteDemandee}</div>
+                            <div style={{ fontSize: '11px', color: colors.text.secondary }}>Catégorie: {p.categorie}</div>
+                            
+                            {/* Actions rapides dans la sidebar */}
+                            {status === 'non-commande' && (
+                              <button onClick={() => handleUpdate(p.id, 'commandeStatus', 'commande')}
+                                style={{ marginTop: '8px', padding: '6px 12px', background: colors.brand.primary, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', width: '100%', fontWeight: 'bold' }}>
+                                Commander
+                              </button>
+                            )}
+                            
+                            {status === 'commande' && (
+                              <button onClick={() => handleUpdate(p.id, 'commandeStatus', 'recu')}
+                                style={{ marginTop: '8px', padding: '6px 12px', background: colors.success, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', width: '100%', fontWeight: 'bold' }}>
+                                Commande reçue
+                              </button>
+                            )}
                           </div>
-                          <div style={{ fontSize: '11px', color: colors.text.secondary }}>
-                            Stock: {p.quantite} / {p.quantiteDemandee}
-                          </div>
-                          <div style={{ fontSize: '11px', color: colors.text.secondary }}>
-                            Catégorie: {p.categorie}
-                          </div>
-                          <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '4px' }}>
-                            Manquant: {Math.max(0, (p.quantiteDemandee || 1) - (p.quantite || 0))} unités
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ));
                 })()}
