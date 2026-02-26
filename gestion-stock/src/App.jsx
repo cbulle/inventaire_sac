@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, getDoc, collection, onSnapshot, query, where } from "firebase/firestore";
-import { auth, db } from './firebase';
+import { auth, db } from './firebase'; // Assurez-vous que le fichier s'appelle bien firebase.js
 import { getTheme } from './theme';
 import './App.css';
 import 'material-icons/iconfont/material-icons.css';
@@ -13,9 +13,7 @@ import StockTable from './components/StockTable';
 import { generatePDF } from './utils/pdfGenerator';
 
 function App() {
-
   const [triggerAction, setTriggerAction] = useState(null);
-
   const [user, setUser] = useState(null);
   const [caserne, setCaserne] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,7 +41,6 @@ function App() {
       if (currentUser) {
         setUser(currentUser);
         try {
-          // 1. On va chercher la caserne de l'utilisateur
           const userDocRef = doc(db, "users", currentUser.uid);
           const userDoc = await getDoc(userDocRef);
           
@@ -51,7 +48,6 @@ function App() {
             const userData = userDoc.data();
             setCaserne(userData.caserne);
 
-            // 2. On écoute les produits SEULEMENT pour cette caserne
             const q = query(
               collection(db, "produits"),
               where("caserne", "==", userData.caserne)
@@ -87,12 +83,13 @@ function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  
-
-
   const handleLogin = (e) => {
     e.preventDefault();
     signInWithEmailAndPassword(auth, email, password).catch(() => setLoginError("Identifiants invalides"));
+  };
+
+  const toggleFilter = (type) => {
+    setTriggerAction(prev => prev === type ? null : type);
   };
 
   if (loading) return <div style={{display:'flex', justifyContent:'center', padding:50, color: colors.text.secondary}}>Chargement...</div>;
@@ -123,10 +120,6 @@ function App() {
     );
   }
 
-  // --- DASHBOARD STATS ---
-  const stockBas = produits.filter(p => (p.quantite || 0) < (p.quantiteDemandee || 1)).length;
-  const enCommande = produits.filter(p => p.commandeStatus === 'commande').length;
-
   return (
     <div style={{maxWidth: 1200, margin: '0 auto', padding: '0 0 80px 0'}}>
       
@@ -145,31 +138,32 @@ function App() {
         
         <div style={{display:'flex', gap: 10}}>
           <button onClick={() => signOut(auth)} style={{background: colors.bg.tertiary, border:'none', borderRadius: '50%', width:35, height:35, cursor:'pointer'}}>
-            <i class="material-icons">logout</i>
+            <i className="material-icons">logout</i>
           </button>
         </div>
       </header>
 
       <div style={{padding: 20}}>
-        {/* STATS CARDS */}
-        <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 15, marginBottom: 25}}>
-  <StatCard 
-    icon={<span className="material-icons">warning</span>} 
-    label="Stock Critique" 
-    value={stockBas} 
-    color={colors.danger} 
-    colors={colors} 
-    onClick={() => setTriggerAction('peremption')} 
-  />
-  <StatCard 
-    icon={<span className="material-icons">local_shipping</span>} 
-    label="En Commande" 
-    value={enCommande} 
-    color={colors.warning} 
-    colors={colors} 
-    onClick={() => setTriggerAction('commande')}
-  />
-</div>
+        
+        {/* BOUTONS DE FILTRAGE (Remplacent les anciennes StatCards) */}
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 15, marginBottom: 25}}>
+          <FilterToggleButton 
+            active={triggerAction === 'peremption'}
+            onClick={() => toggleFilter('peremption')}
+            label={triggerAction === 'peremption' ? "Masquer Péremptions" : "Afficher Péremptions"}
+            icon="warning"
+            activeColor={colors.danger}
+            colors={colors}
+          />
+          <FilterToggleButton 
+            active={triggerAction === 'commande'}
+            onClick={() => toggleFilter('commande')}
+            label={triggerAction === 'commande' ? "Masquer Commandes" : "Afficher Commandes"}
+            icon="local_shipping"
+            activeColor={colors.warning}
+            colors={colors}
+          />
+        </div>
 
         {/* ACTIONS BAR */}
         <div style={{display:'flex', gap: 10, marginBottom: 20, overflowX: 'auto'}} className="hide-scrollbar">
@@ -185,28 +179,48 @@ function App() {
         )}
 
         {/* MAIN LIST */}
-        <StockTable caserne={caserne} produits={produits} isDarkMode={isDarkMode} externalTrigger={triggerAction}
-  setExternalTrigger={setTriggerAction}
-/>
+        <StockTable 
+          caserne={caserne} 
+          produits={produits} 
+          isDarkMode={isDarkMode} 
+          externalTrigger={triggerAction}
+          setExternalTrigger={setTriggerAction}
+        />
       </div>
 
-      {/* MODALS & PANELS */}
+      {/* MODAL D'AJOUT DE PRODUIT (Le bouton '+' flottant apparaîtra grâce à ce composant) */}
       <ProductForm caserne={caserne} isDarkMode={isDarkMode} />
     </div>
   );
 }
 
-// Sub-components pour le Dashboard
-const StatCard = ({ icon, label, value, color, colors, onClick }) => (
-  <div style={{background: colors.bg.primary, padding: 15, borderRadius: 16, boxShadow: colors.shadowSmall, border: `1px solid ${colors.border}`}}>
-    <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
-      <div style={{fontSize: 24}}>{icon}</div>
-      <div style={{fontSize: 24, fontWeight: 700, color: color}}>{value}</div>
-    </div>
-    <div style={{fontSize: 13, color: colors.text.secondary, marginTop: 5, fontWeight: 500}}>{label}</div>
-  </div>
+// Sous-composant pour les boutons de filtrage (Remplace StatCard)
+const FilterToggleButton = ({ active, onClick, label, icon, activeColor, colors }) => (
+  <button 
+    onClick={onClick}
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      padding: '16px',
+      borderRadius: 16,
+      border: `2px solid ${active ? activeColor : colors.border}`,
+      background: active ? activeColor : colors.bg.primary,
+      color: active ? '#fff' : colors.text.primary,
+      cursor: 'pointer',
+      fontWeight: 600,
+      fontSize: '14px',
+      transition: 'all 0.2s ease',
+      boxShadow: active ? '0 4px 12px rgba(0,0,0,0.15)' : colors.shadowSmall,
+    }}
+  >
+    <span className="material-icons" style={{fontSize: 22}}>{icon}</span>
+    <span>{label}</span>
+  </button>
 );
 
+// Sous-composant pour les petits boutons d'action (Config, Export PDF)
 const ActionButton = ({ icon, label, onClick, colors }) => (
   <button onClick={onClick} style={{
     display:'flex', alignItems:'center', gap: 8, padding: '8px 16px', borderRadius: 50,
