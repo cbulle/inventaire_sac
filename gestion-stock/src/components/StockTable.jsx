@@ -68,7 +68,18 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
   // Mise à jour Firestore
   const handleUpdate = async (id, field, value) => {
     const docRef = doc(db, "produits", id);
-    await updateDoc(docRef, { [field]: value, dateModification: new Date().toISOString() });
+    const updates = { [field]: value, dateModification: new Date().toISOString() };
+
+    // Si on modifie la date de péremption et qu'elle devient périmée,
+    // on repasse automatiquement le produit en "à commander" (sauf s'il était déjà en cours)
+    if (field === 'datePeremption' && isProductExpired(value)) {
+      const product = produits.find(p => p.id === id);
+      if (product && product.commandeStatus === 'recu') {
+        updates.commandeStatus = 'non-commande';
+      }
+    }
+
+    await updateDoc(docRef, updates);
   };
 
   // Validation de la réception de commande depuis la modale
@@ -138,16 +149,23 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
   // Produits à commander
   const getProductsToOrder = () => {
     const grouped = {};
+
     const productsNeedingOrder = produits.filter(p => {
       const isLowStock = (p.quantite || 0) < (p.quantiteDemandee || 1);
       const isExpired = isProductExpired(p.datePeremption);
-      
-      // Si le stock est bas OU que c'est périmé, et que ce n'est pas déjà reçu
-      return (isLowStock || isExpired) && p.commandeStatus !== 'recu';
+      const status = p.commandeStatus || 'non-commande';
+
+      // Doit apparaître si : stock bas, OU périmé, OU statut "à commander", OU statut "en commande"
+      return isLowStock || isExpired || status === 'non-commande' || status === 'commande';
     });
 
     productsNeedingOrder.forEach(p => {
-      const status = p.commandeStatus || 'non-commande';
+      const isLowStock = (p.quantite || 0) < (p.quantiteDemandee || 1);
+      const isExpired = isProductExpired(p.datePeremption);
+      // Un produit "Reçu" qui redevient périmé ou en stock bas est réaffiché comme "à commander"
+      const status = (p.commandeStatus === 'recu' && (isLowStock || isExpired))
+        ? 'non-commande'
+        : (p.commandeStatus || 'non-commande');
       if (!grouped[status]) grouped[status] = [];
       grouped[status].push(p);
     });
@@ -237,14 +255,8 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
         </div>
       </div>
 
-      {/* CONTENU PRINCIPAL */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: '1fr', gap: '20px',
-        '@media (min-width: 1200px)': { gridTemplateColumns: showSidebar || showCommandePanel ? '1fr 300px' : '1fr' }
-      }}>
-        
-        {/* TABLEAU */}
-        <div style={{ overflowX: 'auto', borderRadius: '10px', boxShadow: `0 2px 8px ${colors.shadow}`, backgroundColor: colors.bg.primary }}>
+      {/* TABLEAU */}
+      <div style={{ overflowX: 'auto', borderRadius: '10px', boxShadow: `0 2px 8px ${colors.shadow}`, backgroundColor: colors.bg.primary }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
             <thead>
               <tr style={{ background: colors.bg.tertiary, color: colors.text.secondary, fontSize: '11px', textAlign: 'left', textTransform: 'uppercase' }}>
@@ -345,105 +357,164 @@ export default function StockTable({ caserne, isDarkMode, produits: initialProdu
           </table>
         </div>
 
-        {/* SIDEBARS - RESPONSIVE */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', '@media (min-width: 1200px)': { display: showSidebar || showCommandePanel ? 'flex' : 'none' } }}>
-          
-          {/* SIDEBAR PÉREMPTION */}
-          {showSidebar && (
-            <div style={{ backgroundColor: colors.bg.primary, padding: '15px', borderRadius: '10px', boxShadow: `0 2px 8px ${colors.shadow}`, border: `2px solid ${colors.danger}`, maxHeight: '600px', overflowY: 'auto' }}>
-              <h4 style={{ marginTop: 0, color: colors.danger, borderBottom: `1px solid ${colors.border}`, paddingBottom: '10px' }}>⚠️ Contrôle Péremption</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                {Object.keys(produits.reduce((acc, p) => {
-                  if (p.datePeremption) {
-                    const key = p.datePeremption;
-                    if (!acc[key]) acc[key] = [];
-                    acc[key].push(p);
-                  }
-                  return acc;
-                }, {})).sort().map(date => (
-                  <div key={date}>
-                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: isProductExpired(date) ? colors.danger : colors.text.secondary, marginBottom: '5px' }}>
-                      {formatMonthYear(date)} {isProductExpired(date) && "(Périmé)"}
-                    </div>
-                    {produits.filter(p => p.datePeremption === date).map(p => (
-                      <div key={p.id} style={{ fontSize: '13px', padding: '8px', background: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)', borderRadius: '6px', marginBottom: '5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>{p.nom}</span>
-                        <span style={{ fontWeight: 'bold', color: colors.danger }}>{p.quantite}x</span>
-                      </div>
-                    ))}
+      {/* POPUP PÉREMPTION (ouverte via le bouton ⚠️) */}
+      {showSidebar && (
+        <div className="modal-overlay" onClick={() => setShowSidebar(false)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)',
+            zIndex: 1500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}
+            style={{
+              background: colors.bg.primary, padding: '25px', borderRadius: '16px',
+              width: '100%', maxWidth: '450px', maxHeight: '85vh', overflowY: 'auto',
+              boxShadow: `0 10px 25px ${colors.shadow}`
+            }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0, color: colors.danger }}>⚠️ Contrôle Péremption</h3>
+              <button onClick={() => setShowSidebar(false)} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: colors.text.secondary }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              {Object.keys(produits.reduce((acc, p) => {
+                if (p.datePeremption) {
+                  const key = p.datePeremption;
+                  if (!acc[key]) acc[key] = [];
+                  acc[key].push(p);
+                }
+                return acc;
+              }, {})).sort().map(date => (
+                <div key={date}>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: isProductExpired(date) ? colors.danger : colors.text.secondary, marginBottom: '5px' }}>
+                    {formatMonthYear(date)} {isProductExpired(date) && "(Périmé)"}
                   </div>
-                ))}
-                {produits.filter(p => p.datePeremption).length === 0 && (
-                  <div style={{ color: colors.success, fontSize: '13px', textAlign: 'center', padding: '20px' }}>Aucune date de péremption définie !</div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* SIDEBAR COMMANDES */}
-          {showCommandePanel && (
-            <div style={{ backgroundColor: colors.bg.primary, padding: '15px', borderRadius: '10px', boxShadow: `0 2px 8px ${colors.shadow}`, border: `2px solid ${colors.warning}`, maxHeight: '600px', overflowY: 'auto' }}>
-              <h4 style={{ marginTop: 0, color: colors.warning, borderBottom: `1px solid ${colors.border}`, paddingBottom: '10px' }}>📦 Commandes en cours</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                {(() => {
-                  const productsToOrder = getProductsToOrder();
-                  const hasData = Object.keys(productsToOrder).some(status => productsToOrder[status].length > 0);
-
-                  if (!hasData) {
-                    return (
-                      <div style={{ color: colors.success, fontSize: '13px', textAlign: 'center', padding: '20px' }}>Tout est à jour ! ✅</div>
-                    );
-                  }
-
-                  const statusConfig = {
-                    'non-commande': { color: colors.danger, bg: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)', icon: '❌', label: 'À commander' },
-                    'commande': { color: colors.warning, bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(245, 158, 11, 0.1)', icon: '📦', label: 'En commande' }
-                  };
-
-                  return Object.keys(productsToOrder).map(status => (
-                    <div key={status}>
-                      <div style={{ fontSize: '12px', fontWeight: 'bold', color: statusConfig[status]?.color, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        {statusConfig[status]?.icon} {statusConfig[status]?.label} ({productsToOrder[status].length})
-                      </div>
-                      {productsToOrder[status].map(p => {
-                        const isExpired = isProductExpired(p.datePeremption);
-                        return (
-                          <div key={p.id} style={{ fontSize: '12px', padding: '10px', background: statusConfig[status]?.bg, borderRadius: '6px', marginBottom: '8px', border: `1px solid ${statusConfig[status]?.color}` }}>
-                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{p.nom} {isExpired && '⚠️ (Périmé)'}</div>
-                            <div style={{ fontSize: '11px', color: colors.text.secondary }}>Stock: {p.quantite} / {p.quantiteDemandee}</div>
-                            <div style={{ fontSize: '11px', color: colors.text.secondary }}>Catégorie: {p.categorie}</div>
-                            
-                            {/* Bouton Commander */}
-                            {status === 'non-commande' && (
-                              <button onClick={() => handleUpdate(p.id, 'commandeStatus', 'commande')}
-                                style={{ marginTop: '8px', padding: '6px 12px', background: colors.brand.primary, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', width: '100%', fontWeight: 'bold' }}>
-                                Commander
-                              </button>
-                            )}
-                            
-                            {/* Bouton Commande Reçue qui ouvre la modale */}
-                            {status === 'commande' && (
-                              <button onClick={() => {
-                                setReceivingItem(p);
-                                // On pré-remplit la quantité avec la quantité demandée (qui est le but de la commande)
-                                setNewQuantity(p.quantiteDemandee || 1);
-                                setNewPeremption(''); // On vide pour forcer l'utilisateur à vérifier la nouvelle date
-                              }}
-                                style={{ marginTop: '8px', padding: '6px 12px', background: colors.success, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', width: '100%', fontWeight: 'bold' }}>
-                                Commande reçue
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
+                  {produits.filter(p => p.datePeremption === date).map(p => (
+                    <div key={p.id} style={{ fontSize: '13px', padding: '8px', background: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)', borderRadius: '6px', marginBottom: '5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>{p.nom}</span>
+                      <span style={{ fontWeight: 'bold', color: colors.danger }}>{p.quantite}x</span>
                     </div>
-                  ));
-                })()}
-              </div>
+                  ))}
+                </div>
+              ))}
+              {produits.filter(p => p.datePeremption).length === 0 && (
+                <div style={{ color: colors.success, fontSize: '13px', textAlign: 'center', padding: '20px' }}>Aucune date de péremption définie !</div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* POPUP COMMANDES (ouverte via le bouton 📦) */}
+      {showCommandePanel && (
+        <div className="modal-overlay" onClick={() => setShowCommandePanel(false)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)',
+            zIndex: 1500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}
+            style={{
+              background: colors.bg.primary, padding: '25px', borderRadius: '16px',
+              width: '100%', maxWidth: '450px', maxHeight: '85vh', overflowY: 'auto',
+              boxShadow: `0 10px 25px ${colors.shadow}`
+            }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0, color: colors.warning }}>📦 Commandes en cours</h3>
+              <button onClick={() => setShowCommandePanel(false)} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: colors.text.secondary }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              {(() => {
+                const productsToOrder = getProductsToOrder();
+                const hasData = Object.keys(productsToOrder).some(status => productsToOrder[status].length > 0);
+
+                if (!hasData) {
+                  return (
+                    <div style={{ color: colors.success, fontSize: '13px', textAlign: 'center', padding: '20px' }}>Tout est à jour ! ✅</div>
+                  );
+                }
+
+                const statusConfig = {
+                  'non-commande': { color: colors.danger, bg: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)', icon: '❌', label: 'À commander' },
+                  'commande': { color: colors.warning, bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(245, 158, 11, 0.1)', icon: '📦', label: 'En commande' }
+                };
+
+                // Les 3 étapes du cycle de commande, utilisées pour la barre de progression
+                const orderSteps = [
+                  { key: 'non-commande', label: 'À commander' },
+                  { key: 'commande', label: 'Commandé' },
+                  { key: 'recu', label: 'Reçu' }
+                ];
+
+                return Object.keys(productsToOrder).map(status => (
+                  <div key={status}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: statusConfig[status]?.color, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      {statusConfig[status]?.icon} {statusConfig[status]?.label} ({productsToOrder[status].length})
+                    </div>
+                    {productsToOrder[status].map(p => {
+                      const isExpired = isProductExpired(p.datePeremption);
+                      const currentStepIndex = orderSteps.findIndex(s => s.key === status);
+                      return (
+                        <div key={p.id} style={{ fontSize: '12px', padding: '10px', background: statusConfig[status]?.bg, borderRadius: '6px', marginBottom: '8px', border: `1px solid ${statusConfig[status]?.color}` }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{p.nom} {isExpired && '⚠️ (Périmé)'}</div>
+                          <div style={{ fontSize: '11px', color: colors.text.secondary }}>Stock: {p.quantite} / {p.quantiteDemandee}</div>
+                          <div style={{ fontSize: '11px', color: colors.text.secondary }}>Catégorie: {p.categorie}</div>
+
+                          {/* BARRE DE PROGRESSION (3 étapes) */}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', marginTop: '12px' }}>
+                            {orderSteps.map((step, idx) => (
+                              <React.Fragment key={step.key}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: idx === orderSteps.length - 1 ? '0 0 auto' : 1 }}>
+                                  <div style={{
+                                    width: '22px', height: '22px', borderRadius: '50%',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: '11px', fontWeight: 'bold',
+                                    background: idx < currentStepIndex ? colors.success : idx === currentStepIndex ? colors.brand.primary : colors.bg.tertiary,
+                                    color: idx <= currentStepIndex ? 'white' : colors.text.secondary,
+                                    border: idx > currentStepIndex ? `1px solid ${colors.border}` : 'none',
+                                    flexShrink: 0
+                                  }}>
+                                    {idx < currentStepIndex ? '✓' : idx + 1}
+                                  </div>
+                                  <div style={{
+                                    fontSize: '9px', textAlign: 'center', marginTop: '4px', maxWidth: '55px',
+                                    color: idx === currentStepIndex ? colors.text.primary : colors.text.secondary,
+                                    fontWeight: idx === currentStepIndex ? 'bold' : 'normal'
+                                  }}>
+                                    {step.label}
+                                  </div>
+                                </div>
+                                {idx < orderSteps.length - 1 && (
+                                  <div style={{ flex: 1, height: '2px', marginTop: '10px', background: idx < currentStepIndex ? colors.success : colors.border }} />
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </div>
+
+                          {/* BOUTON ÉTAPE SUIVANTE */}
+                          <button onClick={() => {
+                            if (status === 'non-commande') {
+                              // À commander -> Commandé
+                              handleUpdate(p.id, 'commandeStatus', 'commande');
+                            } else if (status === 'commande') {
+                              // Commandé -> Reçu (on ouvre la modale pour saisir quantité + péremption)
+                              setReceivingItem(p);
+                              setNewQuantity(p.quantiteDemandee || 1);
+                              setNewPeremption('');
+                            }
+                          }}
+                            style={{ marginTop: '10px', padding: '8px 12px', background: colors.success, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', width: '100%', fontWeight: 'bold' }}>
+                            Étape suivante →
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODALE DE RÉCEPTION DE COMMANDE */}
       {receivingItem && (
