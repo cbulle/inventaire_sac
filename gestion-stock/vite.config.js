@@ -7,22 +7,28 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      includeAssets: ['sac.png'],
+      workbox: {
+        // Notifications de péremption (voir src/notifications.js)
+        importScripts: ['notif-sw.js'],
+        // Icônes disponibles hors réseau
+        globPatterns: ['**/*.{js,css,html,woff2}']
+      },
       manifest: {
         name: 'Stock Sac SSSM',
-        short_name: 'Secours',
+        short_name: 'Stock Sac',
         description: 'Gestion du stock sac de secours',
-        theme_color: '#ffffff',
+        lang: 'fr',
+        start_url: '.',
+        display: 'standalone',
+        theme_color: '#b91c1c',
+        background_color: '#f4f5f7',
         icons: [
           {
-            src: 'sac.png', 
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png', 
-            sizes: '512x512',
-            type: 'image/png'
+            src: 'sac.png',
+            sizes: '1200x1200',
+            type: 'image/jpeg',
+            purpose: 'any'
           }
         ]
       }

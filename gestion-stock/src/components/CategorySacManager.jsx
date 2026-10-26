@@ -1,100 +1,109 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { doc, setDoc } from "firebase/firestore";
 import { db } from '../firebase';
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { getTheme } from '../theme';
+import { getEmplacements } from '../emplacements';
 
-export default function CategorySacManager({ caserne, isDarkMode }) {
-  const [categories, setCategories] = useState([]);
-  const [sacs, setSacs] = useState([]);
-  const [newVal, setNewVal] = useState('');
-  const [activeTab, setActiveTab] = useState('sacs'); // 'sacs' ou 'categories'
-  const colors = getTheme(isDarkMode);
+// Liste des sacs ; un appui sur un sac déplie ses emplacements
+export default function CategorySacManager({ caserne, config, produits }) {
+  const [openSac, setOpenSac] = useState(config.sacs[0] ?? null);
+  const [newSac, setNewSac] = useState('');
+  const [newPlace, setNewPlace] = useState('');
 
-  useEffect(() => {
-    if (!caserne) return;
-    getDoc(doc(db, "config", caserne)).then(d => {
-      if(d.exists()) {
-        setCategories(d.data().categories || []);
-        setSacs(d.data().sacs || []);
-      }
-    });
-  }, [caserne]);
+  // mergeFields remplace ces champs en entier (sinon un sac supprimé resterait dans la map)
+  const saveConfig = (sacs, emplacements) =>
+    setDoc(doc(db, "config", caserne), { sacs, emplacements }, { mergeFields: ['sacs', 'emplacements'] });
 
-  const handleAdd = async () => {
-    if(!newVal.trim()) return;
-    const isSac = activeTab === 'sacs';
-    const updated = isSac ? [...sacs, newVal] : [...categories, newVal];
-    
-    await setDoc(doc(db, "config", caserne), {
-      categories: isSac ? categories : updated,
-      sacs: isSac ? updated : sacs
-    }, { merge: true });
+  // Map complète : les sacs encore sur la liste commune reçoivent leur propre copie
+  const fullMap = () => Object.fromEntries(config.sacs.map(s => [s, [...getEmplacements(config, s)]]));
 
-    if(isSac) setSacs(updated); else setCategories(updated);
-    setNewVal('');
+  const countIn = (sac, place) =>
+    produits.filter(p => p.sac === sac && (place === undefined || p.categorie === place)).length;
+
+  const addSac = async (e) => {
+    e.preventDefault();
+    const value = newSac.trim();
+    if (!value || config.sacs.includes(value)) return;
+    await saveConfig([...config.sacs, value], { ...fullMap(), [value]: [] });
+    setNewSac('');
+    setOpenSac(value);
   };
 
-  const handleDelete = async (item) => {
-    if(!window.confirm(`Supprimer ${item} ?`)) return;
-    const isSac = activeTab === 'sacs';
-    const updated = (isSac ? sacs : categories).filter(i => i !== item);
-    
-    await setDoc(doc(db, "config", caserne), {
-      categories: isSac ? categories : updated,
-      sacs: isSac ? updated : sacs
-    }, { merge: true });
+  const deleteSac = async (sac) => {
+    const used = countIn(sac);
+    const warning = used ? `\n${used} produit(s) y sont rangés : ils resteront visibles dans « Tous ».` : '';
+    if (!window.confirm(`Supprimer le sac « ${sac} » et ses emplacements ?${warning}`)) return;
+    const map = fullMap();
+    delete map[sac];
+    await saveConfig(config.sacs.filter(s => s !== sac), map);
+  };
 
-    if(isSac) setSacs(updated); else setCategories(updated);
+  const addPlace = async (e) => {
+    e.preventDefault();
+    const value = newPlace.trim();
+    const list = getEmplacements(config, openSac);
+    if (!value || list.includes(value)) return;
+    await saveConfig(config.sacs, { ...fullMap(), [openSac]: [...list, value] });
+    setNewPlace('');
+  };
+
+  const deletePlace = async (place) => {
+    const used = countIn(openSac, place);
+    const warning = used ? `\n${used} produit(s) y sont rangés : ils resteront dans le sac.` : '';
+    if (!window.confirm(`Supprimer l'emplacement « ${place} » de ${openSac} ?${warning}`)) return;
+    await saveConfig(config.sacs, { ...fullMap(), [openSac]: getEmplacements(config, openSac).filter(p => p !== place) });
   };
 
   return (
-    <div style={{background: colors.bg.primary, padding: 20, borderRadius: 16, border: `1px solid ${colors.border}`}}>
-      <h3 style={{marginTop: 0, color: colors.text.primary}}>Configuration du materiel</h3>
-      
-      {/* Tabs */}
-      <div style={{display:'flex', gap: 10, marginBottom: 15}}>
-        <button onClick={() => setActiveTab('sacs')} style={{
-          flex: 1, padding: 10, borderRadius: 8, border: 'none', cursor: 'pointer',
-          background: activeTab === 'sacs' ? colors.brand.light : colors.bg.tertiary,
-          color: activeTab === 'sacs' ? colors.brand.dark : colors.text.secondary, fontWeight: 'bold'
-        }}>Sacs</button>
-        <button onClick={() => setActiveTab('categories')} style={{
-          flex: 1, padding: 10, borderRadius: 8, border: 'none', cursor: 'pointer',
-          background: activeTab === 'categories' ? colors.brand.light : colors.bg.tertiary,
-          color: activeTab === 'categories' ? colors.brand.dark : colors.text.secondary, fontWeight: 'bold'
-        }}>Emplacement</button>
-      </div>
+    <div>
+      <ul className="sac-list">
+        {config.sacs.map(sac => {
+          const places = getEmplacements(config, sac);
+          const isOpen = openSac === sac;
+          return (
+            <li key={sac} className={isOpen ? 'is-open' : ''}>
+              <div className="sac-row">
+                <button className="sac-toggle" onClick={() => { setOpenSac(isOpen ? null : sac); setNewPlace(''); }} aria-expanded={isOpen}>
+                  <span className="material-icons">{isOpen ? 'expand_more' : 'chevron_right'}</span>
+                  <strong>{sac}</strong>
+                  <small>{places.length} emplacement{places.length > 1 ? 's' : ''}</small>
+                </button>
+                <button className="icon-btn" onClick={() => deleteSac(sac)} aria-label={`Supprimer ${sac}`}>
+                  <span className="material-icons">delete_outline</span>
+                </button>
+              </div>
 
-      {/* Input */}
-      <div style={{display:'flex', gap: 10, marginBottom: 15}}>
-        <input 
-          value={newVal} 
-          onChange={e => setNewVal(e.target.value)} 
-          placeholder={`Ajouter un(e) ${activeTab === 'sacs' ? 'Sac' : 'Catégorie'}...`}
-          style={{
-            flex: 1, padding: 10, borderRadius: 8, border: `1px solid ${colors.border}`,
-            background: colors.bg.secondary, color: colors.text.primary
-          }}
-        />
-        <button onClick={handleAdd} style={{
-          padding: '0 20px', borderRadius: 8, border: 'none', 
-          background: colors.success, color: 'white', cursor: 'pointer', fontWeight:'bold'
-        }}>Ajouter</button>
-      </div>
+              {isOpen && (
+                <div className="place-panel">
+                  <ul className="config-list">
+                    {places.map(place => (
+                      <li key={place}>
+                        <span>{place}</span>
+                        <button onClick={() => deletePlace(place)} aria-label={`Supprimer ${place}`}>
+                          <span className="material-icons">delete_outline</span>
+                        </button>
+                      </li>
+                    ))}
+                    {places.length === 0 && <li className="hint">Aucun emplacement : ajoutez-en un ci-dessous.</li>}
+                  </ul>
+                  <form className="config-add" onSubmit={addPlace}>
+                    <input value={newPlace} onChange={e => setNewPlace(e.target.value)} placeholder="Nouvel emplacement" />
+                    <button type="submit" className="btn btn-primary" disabled={!newPlace.trim()} aria-label="Ajouter l'emplacement">
+                      <span className="material-icons">add</span>
+                    </button>
+                  </form>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
 
-      {/* Liste Chips */}
-      <div style={{display:'flex', flexWrap:'wrap', gap: 8}}>
-        {(activeTab === 'sacs' ? sacs : categories).map(item => (
-          <div key={item} style={{
-            padding: '6px 12px', borderRadius: 20, background: colors.bg.tertiary,
-            color: colors.text.primary, fontSize: 13, display:'flex', alignItems:'center', gap: 8,
-            border: `1px solid ${colors.border}`
-          }}>
-            {item}
-            <span onClick={() => handleDelete(item)} style={{cursor:'pointer', color: colors.danger, fontWeight:'bold'}}>×</span>
-          </div>
-        ))}
-      </div>
+      <form className="config-add" onSubmit={addSac}>
+        <input value={newSac} onChange={e => setNewSac(e.target.value)} placeholder="Nouveau sac" />
+        <button type="submit" className="btn btn-primary" disabled={!newSac.trim()}>
+          <span className="material-icons">add</span> Sac
+        </button>
+      </form>
     </div>
   );
 }
